@@ -1,0 +1,196 @@
+import Foundation
+import GRDB
+
+/// SQLite 파일 하나에 L0 원시 로그와 그래프를 함께 둔다.
+/// 같은 파일이라 "배치 처리 표시"와 "그래프 반영"이 한 트랜잭션으로 묶인다.
+public final class WGDatabase: @unchecked Sendable {
+    public let writer: any DatabaseWriter
+    public let path: String?
+
+    public init(path: String) throws {
+        let dir = (path as NSString).deletingLastPathComponent
+        if !dir.isEmpty {
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        }
+        var config = Configuration()
+        config.foreignKeysEnabled = true
+        config.busyMode = .timeout(5)
+        config.prepareDatabase { db in
+            try db.execute(sql: "PRAGMA synchronous = NORMAL")
+        }
+        self.writer = try DatabasePool(path: path, configuration: config)   // WAL
+        self.path = path
+        try Self.migrator.migrate(writer)
+    }
+
+    private init(queue: DatabaseQueue) throws {
+        self.writer = queue
+        self.path = nil
+        try Self.migrator.migrate(writer)
+    }
+
+    public static func inMemory() throws -> WGDatabase {
+        var config = Configuration()
+        config.foreignKeysEnabled = true
+        return try WGDatabase(queue: DatabaseQueue(configuration: config))
+    }
+
+    /// 기본 DB 경로: ~/Library/Application Support/WorkGraph/workgraph.sqlite
+    public static func defaultDirectory() -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        return base.appendingPathComponent("WorkGraph", isDirectory: true)
+    }
+
+    /// 환경변수 WORKGRAPH_DB 가 있으면 그 경로를 쓴다 (개발·시연 때 실제 데이터를 건드리지 않기 위해).
+    public static func defaultPath() -> String {
+        if let override = ProcessInfo.processInfo.environment["WORKGRAPH_DB"], !override.isEmpty { return override }
+        return defaultDirectory().appendingPathComponent("workgraph.sqlite").path
+    }
+
+    static var migrator: DatabaseMigrator {
+        var migrator = DatabaseMigrator()
+        migrator.registerMigration("v1") { db in
+            try db.execute(sql: """
+            CREATE TABLE text_snapshots (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              hash TEXT NOT NULL UNIQUE,
+              source TEXT NOT NULL,
+              text TEXT NOT NULL,
+              created_at REAL NOT NULL
+            );
+            CREATE TABLE batches (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              started_at REAL NOT NULL,
+              finished_at REAL,
+              from_obs INTEGER,
+              to_obs INTEGER,
+              row_count INTEGER NOT NULL DEFAULT 0,
+              status TEXT NOT NULL,
+              model TEXT,
+              prompt_tokens INTEGER NOT NULL DEFAULT 0,
+              completion_tokens INTEGER NOT NULL DEFAULT 0,
+              error TEXT,
+              raw_response TEXT,
+              stats TEXT
+            );
+            CREATE TABLE observations (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              ts REAL NOT NULL,
+              trigger_kind TEXT NOT NULL,
+              app_bundle TEXT NOT NULL,
+              app_name TEXT NOT NULL,
+              window_title TEXT,
+              url TEXT,
+              doc_path TEXT,
+              text_id INTEGER REFERENCES text_snapshots(id),
+              screenshot_path TEXT,
+              batch_id INTEGER REFERENCES batches(id)
+            );
+            CREATE INDEX idx_observations_batch_ts ON observations(batch_id, ts);
+            CREATE INDEX idx_observations_ts ON observations(ts);
+            CREATE TABLE file_events (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              ts REAL NOT NULL,
+              path TEXT NOT NULL,
+              kind TEXT NOT NULL,
+              origin_url TEXT,
+              observation_id INTEGER REFERENCES observations(id)
+            );
+            CREATE TABLE idle_spans (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              start_ts REAL NOT NULL,
+              end_ts REAL
+            );
+            CREATE TABLE nodes (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              label TEXT NOT NULL,
+              key TEXT NOT NULL,
+              subtype TEXT,
+              title TEXT NOT NULL DEFAULT '',
+              props TEXT NOT NULL DEFAULT '{}',
+              created_at REAL NOT NULL,
+              updated_at REAL NOT NULL,
+              UNIQUE(label, key)
+            );
+            CREATE INDEX idx_nodes_label ON nodes(label);
+            CREATE TABLE edges (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              src INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+              dst INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+              type TEXT NOT NULL,
+              props TEXT NOT NULL DEFAULT '{}',
+              weight REAL NOT NULL DEFAULT 0,
+              hits INTEGER NOT NULL DEFAULT 1,
+              first_at REAL NOT NULL,
+              last_at REAL NOT NULL,
+              UNIQUE(src, dst, type)
+            );
+            CREATE INDEX idx_edges_src ON edges(src);
+            CREATE INDEX idx_edges_dst ON edges(dst);
+            """)
+        }
+        migrator.registerMigration("v2-batch-prompts") { db in
+            // LLM 이 정확히 무엇을 받고 무엇을 돌려줬는지 배치마다 남긴다 (검수·디버그·발표용).
+            try db.execute(sql: "ALTER TABLE batches ADD COLUMN system_prompt TEXT")
+            try db.execute(sql: "ALTER TABLE batches ADD COLUMN user_prompt TEXT")
+            try db.execute(sql: "ALTER TABLE batches ADD COLUMN llm_patch TEXT")
+            try db.execute(sql: "ALTER TABLE batches ADD COLUMN applied_patch TEXT")
+        }
+        migrator.registerMigration("v3-readable-views") { db in
+            // DBeaver 같은 DB 도구에서 바로 읽기 좋은 뷰. 시각은 현지 시간 문자열, 텍스트와 업무 이름은 조인해 둔다.
+            try db.execute(sql: """
+            CREATE VIEW v_rows AS
+              SELECT o.id, datetime(o.ts, 'unixepoch', 'localtime') AS time, o.trigger_kind, o.app_name, o.app_bundle,
+                     o.window_title, o.url, o.doc_path, t.source AS text_source, t.text, o.screenshot_path, o.batch_id
+              FROM observations o LEFT JOIN text_snapshots t ON t.id = o.text_id;
+            CREATE VIEW v_batches AS
+              SELECT id, datetime(started_at, 'unixepoch', 'localtime') AS time, status, model, row_count,
+                     prompt_tokens, completion_tokens, error, user_prompt, llm_patch, applied_patch, system_prompt, stats, from_obs, to_obs
+              FROM batches;
+            CREATE VIEW v_nodes AS
+              SELECT id, label, subtype, title, key, props,
+                     datetime(created_at, 'unixepoch', 'localtime') AS created, datetime(updated_at, 'unixepoch', 'localtime') AS updated
+              FROM nodes;
+            CREATE VIEW v_edges AS
+              SELECT e.id, s.label AS from_label, s.title AS from_title, e.type, d.label AS to_label, d.title AS to_title,
+                     e.weight, e.hits, e.props, datetime(e.last_at, 'unixepoch', 'localtime') AS last_at
+              FROM edges e JOIN nodes s ON s.id = e.src JOIN nodes d ON d.id = e.dst;
+            CREATE VIEW v_sessions AS
+              SELECT s.id, t.title AS task, datetime(json_extract(s.props, '$.start'), 'unixepoch', 'localtime') AS start_time,
+                     datetime(json_extract(s.props, '$.end'), 'unixepoch', 'localtime') AS end_time,
+                     json_extract(s.props, '$.active_seconds') AS active_seconds, json_extract(s.props, '$.summary') AS summary
+              FROM nodes s JOIN edges e ON e.src = s.id AND e.type = 'PART_OF' JOIN nodes t ON t.id = e.dst
+              WHERE s.label = 'Session';
+            """)
+        }
+        migrator.registerMigration("v4-chat-messages") { db in
+            // AI 코딩 도구(Claude Code, Codex CLI)에 사용자가 입력한 메시지. 로컬 로그 파일에서 읽는다.
+            try db.execute(sql: """
+            CREATE TABLE chat_messages (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              ts REAL NOT NULL,
+              tool TEXT NOT NULL,
+              session_id TEXT NOT NULL,
+              cwd TEXT,
+              text TEXT NOT NULL,
+              ingested_at REAL NOT NULL,
+              UNIQUE(tool, session_id, ts)
+            );
+            CREATE INDEX idx_chat_messages_ts ON chat_messages(ts);
+            CREATE TABLE chat_cursors (
+              path TEXT PRIMARY KEY,
+              offset INTEGER NOT NULL
+            );
+            CREATE VIEW v_chats AS
+              SELECT id, datetime(ts, 'unixepoch', 'localtime') AS time, tool, session_id, cwd, text FROM chat_messages;
+            """)
+        }
+        migrator.registerMigration("v5-chat-batch") { db in
+            // 대화 메시지도 어느 배치가 썼는지 기록한다. 늦게 읽힌 메시지가 빠지지 않고 다음 배치에 반드시 들어가게.
+            try db.execute(sql: "ALTER TABLE chat_messages ADD COLUMN batch_id INTEGER REFERENCES batches(id)")
+            try db.execute(sql: "CREATE INDEX idx_chat_messages_batch ON chat_messages(batch_id, ts)")
+        }
+        return migrator
+    }
+}

@@ -1,0 +1,347 @@
+import AppKit
+import Combine
+import Foundation
+import WorkGraphCollectors
+import WorkGraphCore
+
+/// 앱의 단일 상태. 수집기(actor)와 배치 실행기(actor)를 소유하고, 화면에는 요약만 내보낸다.
+@MainActor
+final class AppState: ObservableObject {
+    @Published var settings: AppSettings
+    @Published var status = CollectorStatus()
+    @Published var todayCount = 0
+    @Published var pendingCount = 0
+    @Published var lastBatchText = "아직 정리한 적 없음"
+    @Published var batchRunning = false
+    @Published var graphVersion = 0
+    @Published var recent: [Observation] = []
+    @Published var batches: [BatchRecord] = []
+    @Published var llmTestResult: String?
+    @Published var startupError: String?
+    @Published var codexStatus: CodexAuthStatus = .loggedOut
+    /// 로그인 진행 중일 때만 값이 있다. 화면에 코드와 안내를 보여준다.
+    @Published var deviceCode: DeviceCode?
+    @Published var codexMessage: String?
+    @Published var codexModels: [CodexModel] = []
+    @Published var codexUsage: CodexUsage?
+    /// 로그인해야 쓸 수 있다. `.ready` 가 되기 전에는 수집기도 배치도 돌지 않는다.
+    @Published var phase: AppPhase = .login
+    @Published var bootstrapped = false
+
+    let databasePath = WGDatabase.defaultPath()
+    private var db: WGDatabase?
+    private var store: EventStore?
+    private var coordinator: CollectorCoordinator?
+    private var batcher: OntologyBatcher?
+    private var tasks: [Task<Void, Never>] = []
+    private let codexAuth = CodexAuthManager()
+    private var loginTask: Task<Void, Never>?
+    private var servicesRunning = false
+    private var bootstrapLogged = false
+    private let instanceLock = InstanceLock(databasePath: WGDatabase.defaultPath())
+    private static let onboardingKey = "workgraph.onboardingCompleted"
+
+    init() {
+        settings = AppSettings.load()
+        guard instanceLock.acquire() else {
+            startupError = "WorkGraph 가 이미 실행 중입니다. 메뉴바의 아이콘을 확인하세요. 터미널에서 swift run 으로 띄운 것이 있다면 그쪽을 먼저 끄세요."
+            return
+        }
+        do {
+            let database = try WGDatabase(path: databasePath)
+            try database.writer.write { try TBox.seed(GraphTx($0), at: Date().timeIntervalSince1970) }
+            let store = EventStore(database)
+            let captures = URL(fileURLWithPath: databasePath).deletingLastPathComponent().appendingPathComponent("captures", isDirectory: true)
+            let coordinator = CollectorCoordinator(store: store, capturesDir: captures, settings: settings.collector)
+            self.db = database
+            self.store = store
+            self.coordinator = coordinator
+            self.batcher = OntologyBatcher(db: database, llm: makeClient())
+        } catch {
+            startupError = "데이터베이스를 열 수 없습니다: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: 단계 (온보딩 → 사용)
+
+    /// 앱이 뜰 때 한 번: 로그인 상태를 읽어 단계를 정하고, 쓸 수 있는 상태면 서비스를 켠다.
+    func bootstrap() async {
+        guard !bootstrapped else { return }
+        codexStatus = await codexAuth.status()
+        bootstrapped = true
+        updatePhase()
+        if phase == .ready { await loadCodexModels() }
+    }
+
+    private func updatePhase() {
+        let previous = phase
+        phase = AppPhase.decide(loggedIn: codexStatus != .loggedOut,
+                                onboardingCompleted: UserDefaults.standard.bool(forKey: Self.onboardingKey))
+        if previous != phase || !bootstrapLogged {
+            bootstrapLogged = true
+            AppLog.write("단계: \(phase) (손쉬운 사용 \(Permissions.accessibility(prompt: false) ? "허용" : "없음"), 화면 기록 \(Permissions.screenRecording() ? "허용" : "없음"))")
+        }
+        phase.runsServices ? startServices() : stopServices()
+    }
+
+    /// 온보딩의 마지막 버튼. 이 뒤로는 실행할 때마다 바로 수집이 시작된다.
+    func completeOnboarding() {
+        UserDefaults.standard.set(true, forKey: Self.onboardingKey)
+        updatePhase()
+        Task {
+            await loadCodexModels()
+            await runBatch(force: false)                    // 로그인 전에 쌓여 있던 활동이 있으면 바로 정리
+        }
+    }
+
+    private func startServices() {
+        guard !servicesRunning, let coordinator else { return }
+        servicesRunning = true
+        start(coordinator)
+    }
+
+    private func stopServices() {
+        guard servicesRunning else { return }
+        servicesRunning = false
+        tasks.forEach { $0.cancel() }
+        tasks = []
+        let coordinator = self.coordinator
+        Task { await coordinator?.stop() }
+    }
+
+    /// 화면 기록 권한은 허용한 뒤 앱을 다시 켜야 적용된다.
+    func relaunch() {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { _, _ in
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
+    }
+
+    private func start(_ coordinator: CollectorCoordinator) {
+        tasks.append(Task {
+            await coordinator.setOnChange { [weak self] status in
+                Task { @MainActor in self?.status = status }
+            }
+            await coordinator.start()
+        })
+        tasks.append(Task { [weak self] in                 // 화면용 숫자 갱신
+            while !Task.isCancelled {
+                self?.refresh()
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+            }
+        })
+        tasks.append(Task { [weak self] in                 // 1분마다 배치 조건 확인
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
+                await self?.runBatch(force: false)
+            }
+        })
+    }
+
+    private func makeOpenAIClient() -> OpenAICompatClient {
+        let url = URL(string: settings.llmBaseURL.trimmingCharacters(in: .whitespaces)) ?? URL(string: "http://localhost:5010/v1")!
+        return OpenAICompatClient(baseURL: url, model: settings.llmModel, apiKey: settings.llmAPIKey.isEmpty ? nil : settings.llmAPIKey)
+    }
+
+    private func makeClient() -> any LLMClient {
+        settings.llmProvider == "openai" ? makeOpenAIClient() : CodexResponsesClient(auth: codexAuth, model: settings.codexModel)
+    }
+
+    // MARK: ChatGPT 로그인
+
+    /// 서버가 로그인을 폐기했으면(계정에서 Codex 연결 해제 등) 토큰이 지워져 있다. 그때는 수집을 멈추고 로그인 화면을 띄운다.
+    func handleAuthLossIfNeeded() async {
+        let status = await codexAuth.status()
+        guard settings.llmProvider != "openai", status == .loggedOut, phase == .ready else { return }
+        codexStatus = status
+        codexMessage = "ChatGPT 연결이 끊겨 다시 로그인해야 합니다. 계정 설정에서 Codex 연결을 해제했거나 다른 곳에서 로그아웃하면 이렇게 됩니다."
+        AppLog.write("로그인 무효화 감지 → 로그인 화면으로")
+        updatePhase()
+        WindowOpener.shared.openMain()
+    }
+
+    func refreshCodexStatus() {
+        Task {
+            codexStatus = await codexAuth.status()
+            await loadCodexModels()
+            await loadCodexUsage()
+        }
+    }
+
+    func loadCodexUsage() async {
+        guard codexStatus != .loggedOut else { codexUsage = nil; return }
+        codexUsage = try? await CodexResponsesClient.fetchUsage(auth: codexAuth)
+    }
+
+    /// 로그인돼 있으면 이 계정에서 쓸 수 있는 모델 목록을 받아 온다. 고른 모델이 목록에 없으면 기본값으로 되돌린다.
+    func loadCodexModels() async {
+        guard codexStatus != .loggedOut, let models = try? await CodexResponsesClient.listModels(auth: codexAuth), !models.isEmpty else { return }
+        codexModels = models
+        if !models.contains(where: { $0.slug == settings.codexModel }) {
+            settings.codexModel = models.first { $0.slug == CodexResponsesClient.defaultModel }?.slug ?? models[0].slug
+            applySettings()
+        }
+    }
+
+    /// 기기 코드 로그인: 코드를 받아 클립보드에 넣고 브라우저를 연 뒤, 사용자가 승인할 때까지 기다린다.
+    func startCodexLogin() {
+        guard loginTask == nil else { return }
+        codexMessage = nil
+        loginTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.loginTask = nil; self.deviceCode = nil }
+            do {
+                let code = try await self.codexAuth.beginDeviceLogin()
+                self.deviceCode = code
+                self.copyDeviceCode()
+                NSWorkspace.shared.open(code.verificationURL)
+                self.codexStatus = try await self.codexAuth.completeDeviceLogin(code)
+                self.codexMessage = "로그인했습니다"
+                self.updatePhase()                                      // 로그인 → 권한 안내(처음) 또는 바로 사용
+                await self.loadCodexModels()
+                if self.phase == .ready { await self.runBatch(force: false) }   // 밀려 있던 활동을 바로 정리
+            } catch let error as CodexAuthError {
+                self.codexMessage = error == .cancelled ? nil : error.description
+            } catch is CancellationError {
+                self.codexMessage = nil
+            } catch {
+                self.codexMessage = error.localizedDescription
+            }
+        }
+    }
+
+    func cancelCodexLogin() {
+        loginTask?.cancel()
+    }
+
+    func copyDeviceCode() {
+        guard let code = deviceCode?.userCode else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(code, forType: .string)
+    }
+
+    func logoutCodex() {
+        Task {
+            try? await codexAuth.logout()
+            codexStatus = await codexAuth.status()
+            codexMessage = nil
+            codexModels = []
+            updatePhase()                                               // 로그아웃하면 수집을 멈추고 로그인 화면으로
+        }
+    }
+
+    // MARK: 동작
+
+    func runBatch(force: Bool) async {
+        guard let batcher, settings.batchEnabled || force, !batchRunning else { return }
+        batchRunning = true
+        defer { batchRunning = false }
+        var applied = false
+        for _ in 0..<20 {                                  // 밀린 구간이 많으면 이어서 처리
+            let outcome = await batcher.runIfDue(force: force)
+            switch outcome {
+            case .ok(let stats):
+                applied = true
+                AppLog.write("정리 성공: 세션 \(stats.sessions + stats.sessionsExtended), 새 업무 \(stats.tasksCreated), 자료 \(stats.resources)")
+                lastBatchText = "\(Self.clock.string(from: Date())) 정리 완료 (업무 \(stats.tasksCreated)개 새로, 자료 \(stats.resources)개)"
+                continue
+            case .failed(let message):
+                AppLog.write("정리 실패: \(message.prefix(200))")
+                await handleAuthLossIfNeeded()
+                lastBatchText = "\(Self.clock.string(from: Date())) 정리 실패: \(message.prefix(120))"
+            case .skipped:
+                break
+            }
+            break
+        }
+        if applied { graphVersion += 1 }
+        refresh()
+    }
+
+    func togglePause() {
+        guard let coordinator else { return }
+        let next = !status.paused
+        Task { await coordinator.setPaused(next) }
+    }
+
+    func applySettings() {
+        settings.save()
+        NSApp.setActivationPolicy(settings.showDockIcon ? .regular : .accessory)
+        let collectorSettings = settings.collector
+        let client = makeClient()
+        Task { [coordinator, batcher] in
+            await coordinator?.update(settings: collectorSettings)
+            await batcher?.setLLM(client)
+        }
+    }
+
+    func testLLM() async {
+        llmTestResult = "확인 중…"
+        if settings.llmProvider == "openai" {
+            let client = makeOpenAIClient()
+            let reachable = await client.ping()
+            switch await client.selfTest() {
+            case .success(let message): llmTestResult = "연결됨. \(message)"
+            case .failure(let error):
+                llmTestResult = reachable
+                    ? "서버는 응답하지만 호출에 실패했습니다.\n\(error.description.prefix(300))"
+                    : "서버에 연결할 수 없습니다. 서버가 켜져 있는지 확인하세요.\n\(error.description.prefix(200))"
+            }
+            return
+        }
+        switch await makeClient().selfTest() {
+        case .success(let message): llmTestResult = "연결됨. \(message)"
+        case .failure(let error): llmTestResult = String(error.description.prefix(300))
+        }
+        codexStatus = await codexAuth.status()
+    }
+
+    func refresh() {
+        guard let store else { return }
+        let startOfDay = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+        if let counts = try? store.counts(since: startOfDay) {
+            todayCount = counts.total
+            pendingCount = counts.unprocessed
+        }
+        // 값이 같으면 @Published 를 건드리지 않는다. 5초마다 전체 화면이 다시 그려지는 것을 막는다.
+        let newRecent = (try? store.recent(limit: 500)) ?? []
+        if newRecent != recent { recent = newRecent }
+        let newBatches = (try? store.recentBatchSummaries(limit: 100)) ?? []
+        if newBatches != batches { batches = newBatches }
+    }
+
+    func observationText(_ textId: Int64) -> String? {
+        (try? store?.texts(ids: [textId]))?[textId]
+    }
+
+    /// 상세 패널용: 선택한 배치만 프롬프트·응답까지 전부 읽는다.
+    func batchDetail(_ id: Int64) -> BatchRecord? {
+        (try? store?.batch(id: id)) ?? nil
+    }
+
+    /// 그래프 뷰로 보낼 JSON. 클래스 층도 함께 보내고, 보일지 말지는 화면에서 정한다.
+    func graphJSON() -> String {
+        guard let db, let graph = try? db.writer.read({ try GraphTx($0).subgraph(since: nil, includeTBox: true) }),
+              let data = try? GraphJSONExporter.export(graph) else { return #"{"nodes":[],"links":[]}"# }
+        return String(data: data, encoding: .utf8) ?? #"{"nodes":[],"links":[]}"#
+    }
+
+    func revealDataFolder() {
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: databasePath)])
+    }
+
+    var statusLine: String {
+        if startupError != nil { return "시작 실패" }
+        if phase != .ready { return "시작하려면 ChatGPT 로그인이 필요합니다" }
+        if status.paused { return "일시정지됨" }
+        if status.idle { return "자리 비움" }
+        return status.running ? "수집 중" : "시작하는 중"
+    }
+
+    static let clock: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+}

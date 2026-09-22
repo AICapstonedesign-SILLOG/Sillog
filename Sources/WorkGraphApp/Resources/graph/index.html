@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WorkGraph</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="graph" aria-label="업무 그래프"></div>
+
+  <aside id="controls" aria-label="그래프 설정">
+    <div class="search">
+      <input id="search" type="search" placeholder="노드 검색" autocomplete="off" spellcheck="false" aria-label="노드 검색">
+      <kbd>/</kbd>
+    </div>
+
+    <section>
+      <h2>종류</h2>
+      <ul id="legend"></ul>
+    </section>
+
+    <section>
+      <h2>기간</h2>
+      <div class="segmented" id="range" role="radiogroup" aria-label="기간">
+        <button type="button" data-hours="24" role="radio" aria-checked="false">오늘</button>
+        <button type="button" data-hours="168" role="radio" aria-checked="false">7일</button>
+        <button type="button" data-hours="0" role="radio" aria-checked="true" class="on">전체</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>보기</h2>
+      <label class="toggle"><input type="checkbox" id="tbox"> 클래스 층 보기</label>
+      <label class="toggle"><input type="checkbox" id="labels"> 라벨 항상 보기</label>
+      <label class="toggle"><input type="checkbox" id="local"> 선택한 노드 주변만</label>
+      <label class="slider" id="depthRow">깊이 <output id="depthOut">2</output>
+        <input type="range" id="depth" min="1" max="3" value="2">
+      </label>
+    </section>
+
+    <p id="stats" aria-live="polite"></p>
+  </aside>
+
+  <aside id="detail" hidden aria-label="선택한 노드">
+    <button type="button" id="closeDetail" aria-label="닫기">닫기</button>
+    <p id="detailKind"></p>
+    <h1 id="detailTitle"></h1>
+    <p id="detailKey"></p>
+    <button type="button" id="openKey" hidden>열기</button>
+    <dl id="detailProps"></dl>
+    <div id="detailLinks"></div>
+  </aside>
+
+  <div id="empty" hidden>
+    <h1>아직 그래프가 비어 있습니다</h1>
+    <p>활동이 5분 넘게 쌓이면 자동으로 정리됩니다. 지금 바로 정리할 수도 있습니다.</p>
+    <button type="button" id="runBatch">지금 정리</button>
+  </div>
+
+  <script src="vendor/force-graph.min.js"></script>
+  <script src="graph.js"></script>
+</body>
+</html>
