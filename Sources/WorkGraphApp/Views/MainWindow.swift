@@ -3,7 +3,7 @@ import WorkGraphCore
 
 struct MainWindow: View {
     enum Tab: String, CaseIterable, Identifiable {
-        case graph = "그래프", activity = "활동 로그", settings = "설정"
+        case graph = "그래프", tasks = "업무", files = "파일", activity = "활동 로그", settings = "설정"
         var id: String { rawValue }
     }
 
@@ -12,13 +12,13 @@ struct MainWindow: View {
     static let initialTab: Tab = {
         switch ProcessInfo.processInfo.environment["WORKGRAPH_TAB"] {
         case "activity": return .activity
+        case "files": return .files
+        case "tasks": return .tasks
         case "settings": return .settings
         case "graph": return .graph
         default: return .graph                                   // 권한·로그인 안내는 온보딩이 맡는다
         }
     }()
-    @State private var tab: Tab = MainWindow.initialTab
-
     var body: some View {
         Group {
             if let error = state.startupError {
@@ -28,18 +28,21 @@ struct MainWindow: View {
             } else if state.phase != .ready {
                 OnboardingView()
             } else {
-                switch tab {
+                switch state.selectedTab {
                 case .graph: GraphWebView(version: state.graphVersion).ignoresSafeArea(edges: .bottom)
+                case .tasks: TasksView()
+                case .files: FilesView()
                 case .activity: ActivityLogView()
                 case .settings: SettingsView()
                 }
             }
         }
         .frame(minWidth: 900, minHeight: 560)
+        .sheet(item: $state.resumeRequest) { request in ResumeSheet(request: request).environmentObject(state) }
         .toolbar {
             if state.phase == .ready {                      // 온보딩 중에는 탭과 버튼을 숨긴다
                 ToolbarItem(placement: .principal) {
-                    Picker("화면", selection: $tab) {
+                    Picker("화면", selection: $state.selectedTab) {
                         ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented)
@@ -56,7 +59,7 @@ struct MainWindow: View {
         .onChange(of: state.phase) { old, phase in
             // 온보딩을 막 끝냈을 때만 그래프 탭으로. 앱 시작 시의 login → ready 전환은 탭을 건드리지 않는다.
             if phase == .ready { state.refresh() }
-            if phase == .ready, old == .permissions { tab = .graph }
+            if phase == .ready, old == .permissions { state.selectedTab = .graph }
         }
         .onAppear { state.refresh() }
     }

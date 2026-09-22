@@ -66,6 +66,7 @@ public actor CollectorCoordinator {
     private var locked = false
     private var status = CollectorStatus()
     private var onChange: (@Sendable (CollectorStatus) -> Void)?
+    private var onFileAppeared: (@Sendable (_ path: String, _ originURL: String?) -> Void)?
 
     public init(store: EventStore, capturesDir: URL, settings: CollectorSettings = CollectorSettings()) {
         self.store = store
@@ -74,6 +75,8 @@ public actor CollectorCoordinator {
     }
 
     public func setOnChange(_ handler: (@Sendable (CollectorStatus) -> Void)?) { onChange = handler }
+    /// 다운로드 폴더에 새 파일이 생겼을 때 (기록 후) 알려 준다. 정리 위치 제안이 여기에 붙는다.
+    public func setOnFileAppeared(_ handler: (@Sendable (_ path: String, _ originURL: String?) -> Void)?) { onFileAppeared = handler }
     public func currentStatus() -> CollectorStatus { status }
 
     public func update(settings new: CollectorSettings) {
@@ -297,6 +300,7 @@ public actor CollectorCoordinator {
         guard !status.paused else { return }
         try? store.insertFileEvent(FileEvent(ts: Date().timeIntervalSince1970, path: path, kind: "created",
                                              originUrl: origin, observationId: lastObservationId))
+        onFileAppeared?(path, origin)
     }
 
     private func cleanupOldCaptures(now: Double) {

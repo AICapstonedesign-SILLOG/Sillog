@@ -27,6 +27,20 @@ struct MenuBarView: View {
         if !state.status.accessibility || !state.status.screenRecording {
             Text("권한이 빠져 있어 일부만 수집 중입니다")
         }
+        if state.pendingFileSuggestions > 0 {
+            Button("파일 정리 제안 \(state.pendingFileSuggestions)건") {
+                state.selectedTab = .files
+                openWindow(id: "main")
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
+        if !state.taskList.isEmpty {
+            Menu("다시 열기") {
+                ForEach(state.taskList.prefix(6)) { task in
+                    Button(task.title) { state.prepareResume(taskId: task.id) }
+                }
+            }
+        }
         Divider()
         Button("그래프 열기") {
             openWindow(id: "main")

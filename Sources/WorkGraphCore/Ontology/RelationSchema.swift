@@ -80,7 +80,7 @@ public enum RelationSchema {
         .init(type: EdgeType.belongsTo, pairs: [RelationPair(NodeLabel.resource, NodeLabel.project), RelationPair(NodeLabel.file, NodeLabel.folder)],
               meaning: "자료가 프로젝트에, 파일이 폴더에 속한다", standard: "prov:hadMember (역방향)"),
         .init(type: EdgeType.on, from: [NodeLabel.task], to: [NodeLabel.project],
-              meaning: "업무가 어느 프로젝트 작업인지", standard: "wg:onProject"),
+              meaning: "업무의 프로젝트. 업무당 하나, 프로젝트당 하나 (1:1). 거기서 일한 시간이 가장 긴 업무가 그 프로젝트의 업무", standard: "wg:onProject"),
         .init(type: EdgeType.hit, from: [NodeLabel.session], to: [NodeLabel.problem],
               meaning: "세션 중에 문제를 겪었다", standard: "prov:wasGeneratedBy (역방향)"),
         .init(type: EdgeType.resolvedBy, from: [NodeLabel.problem], to: [NodeLabel.resource],

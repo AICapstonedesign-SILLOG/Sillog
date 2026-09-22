@@ -45,44 +45,50 @@ public final class DemoLLM: LLMClient, @unchecked Sendable {
             assigned[index] = index > 0 ? assigned[index - 1] : (assigned.dropFirst(index).compactMap { $0 }.first ?? recentKey)
         }
 
-        var segments: [[String: Any]] = []
+        // 행마다 정해진 업무를 assign_rows 형식으로. 같은 업무의 연속 행은 범위로 줄인다
+        var tasks: [[String: Any]] = [], refByKey: [String: String] = [:]
+        func ref(for key: String) -> String {
+            if let known = refByKey[key] { return known }
+            let profile = Self.profiles[key] ?? Self.profiles["frontend"]!
+            let name = "T\(tasks.count + 1)"
+            var def: [String: Any] = ["ref": name, "match": "new", "title": profile.title, "task_type": profile.type]
+            if let id = openTasks[profile.title] { def = ["ref": name, "match": "existing", "id": id] }
+            tasks.append(def); refByKey[key] = name
+            return name
+        }
+        var rowRefs: [[String: Any]] = []
         var start = 0
         while start < rows.count {
             var end = start
             while end + 1 < rows.count, assigned[end + 1] == assigned[start] { end += 1 }
             let key = assigned[start] ?? "frontend"
-            let profile = Self.profiles[key] ?? Self.profiles["frontend"]!
-            let slice = Array(rows[start...end])
-
-            var task: [String: Any] = ["match": "new", "title": profile.title, "task_type": profile.type]
-            if let id = openTasks[profile.title] { task["match"] = "existing"; task["id"] = id }
-            var segment: [String: Any] = ["from_row": rows[start].number, "to_row": rows[end].number, "task": task,
-                                          "summary": profile.summary, "topics": profile.topics]
-
-            var problems: [[String: Any]] = []
-            if let bad = slice.first(where: { $0.text.contains("LinAlgError") }) {
-                var problem: [String: Any] = ["row": bad.number, "kind": "runtime", "message": "LinAlgError: Last 2 dimensions of the array must be square"]
-                if let fix = slice.first(where: { $0.number > bad.number && $0.uri.contains("claude.ai") }) { problem["resolved_by_row"] = fix.number }
-                problems.append(problem)
-            }
-            if let bad = slice.first(where: { $0.text.lowercased().contains("npm run dev") || $0.text.lowercased().contains("key\" prop") }) {
-                var problem: [String: Any] = ["row": bad.number, "kind": "build", "message": "React key prop warning"]
-                if let fix = slice.first(where: { $0.uri.contains("stackoverflow") }) { problem["resolved_by_row"] = fix.number }
-                problems.append(problem)
-            }
-            if !problems.isEmpty { segment["problems"] = problems }
-
-            var later: [[String: Any]] = []
-            if let row = slice.first(where: { $0.text.contains("16px") }) { later.append(["row": row.number, "text": "카드 간격 16px로 조정"]) }
-            if let row = slice.first(where: { $0.text.contains("구조도") }) { later.append(["row": row.number, "text": "보고서 3장 시스템 구조도 받기 (성민)"]) }
-            if !later.isEmpty { segment["later_items"] = later }
-
-            if !segments.isEmpty { segment["switch_kind"] = key == "drift" ? "drift" : "planned" }
-            segments.append(segment)
+            rowRefs.append(["rows": start == end ? "\(rows[start].number)" : "\(rows[start].number)-\(rows[end].number)", "task": ref(for: key)])
             start = end + 1
         }
+        var work: [[String: Any]] = []
+        for (key, name) in refByKey {
+            let profile = Self.profiles[key] ?? Self.profiles["frontend"]!
+            work.append(["task": name, "summary": profile.summary, "topics": profile.topics])
+        }
+        var problems: [[String: Any]] = []
+        if let bad = rows.first(where: { $0.text.contains("LinAlgError") }) {
+            var problem: [String: Any] = ["row": bad.number, "kind": "runtime", "message": "LinAlgError: Last 2 dimensions of the array must be square"]
+            if let fix = rows.first(where: { $0.number > bad.number && $0.uri.contains("claude.ai") }) { problem["resolved_by_row"] = fix.number }
+            problems.append(problem)
+        }
+        if let bad = rows.first(where: { $0.text.lowercased().contains("npm run dev") || $0.text.lowercased().contains("key\" prop") }) {
+            var problem: [String: Any] = ["row": bad.number, "kind": "build", "message": "React key prop warning"]
+            if let fix = rows.first(where: { $0.uri.contains("stackoverflow") }) { problem["resolved_by_row"] = fix.number }
+            problems.append(problem)
+        }
+        var later: [[String: Any]] = []
+        if let row = rows.first(where: { $0.text.contains("16px") }) { later.append(["row": row.number, "text": "카드 간격 16px로 조정"]) }
+        if let row = rows.first(where: { $0.text.contains("구조도") }) { later.append(["row": row.number, "text": "보고서 3장 시스템 구조도 받기 (성민)"]) }
 
-        let data = try JSONSerialization.data(withJSONObject: ["segments": segments], options: [.sortedKeys])
+        var payload: [String: Any] = ["tasks": tasks, "rows": rowRefs, "work": work.sorted { ($0["task"] as? String ?? "") < ($1["task"] as? String ?? "") }]
+        if !problems.isEmpty { payload["problems"] = problems }
+        if !later.isEmpty { payload["later_items"] = later }
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
         return LLMResult(arguments: data, model: modelName, promptTokens: 0, completionTokens: 0,
                          raw: String(data: data, encoding: .utf8) ?? "")
     }

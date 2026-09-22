@@ -25,6 +25,8 @@ wgctl [--db PATH] <command>
                                         (권한은 이 명령을 실행한 터미널 앱 기준으로 적용된다)
   rebuild-graph --yes                   그래프를 지우고 원시 행 전체를 미처리로 되돌린다 (이후 batch --all 로 다시 정리).
                                         원시 행과 스크린샷은 그대로다. 분류 로직을 바꾼 뒤 결과를 다시 만들 때 쓴다. 앱을 끄고 실행할 것
+  rebuild-graph --from-assignments      LLM 없이: 행마다 기록된 업무 판단은 그대로 두고 세션·앱·자료·흐름·프로젝트만 다시 계산한다
+                                        (세션 규칙을 바꿨을 때. 업무·주제·문제·할 일 노드는 유지)
   rows [--last N] [--text]              최근 관측 행 (원시 데이터). --text 면 화면 텍스트 앞부분도
   batches [--last N] | batch-show ID     정리 기록 목록 / 한 배치가 LLM 에 보낸 것과 받은 것 전문
   dump FILE.md [--since-hours N] [--text]
@@ -35,6 +37,16 @@ wgctl [--db PATH] <command>
   export-rdf FILE                       PROV-O·SKOS 에 매핑한 Turtle(RDF). 표준 RDF 도구(rdflib, Protégé, GraphDB)로 읽힌다
   schema                                클래스와 관계 정의 (정의역·치역, 표준 어휘 대응)
   neighbors LABEL KEY [--hops N]        한 노드에서 N 다리 안의 부분 그래프
+  suggest FILE [--origin URL] [--context "제목|제목"] [--screen "화면 텍스트"] [--roots ~/Desktop,~/Documents] [--dry]
+                                        내려받은 파일을 어느 폴더에 둘지 제안 (후보 목록과 LLM 의 선택을 출력. --dry 면 기록하지 않음)
+  suggestions [--last N]                파일 정리 제안 기록
+  tasks [--last N]                      업무 목록 (id, 시간, 세션 수) / sessions TASK_ID  그 업무의 세션 목록
+  resume-plan TASK_ID | --session ID    그 업무·세션을 "다시 열기" 하면 무엇을 열지 (열지는 않음)
+  clean-topics [--yes]                  주제 노드 중 앱·플랫폼·프로젝트 이름·채움말을 찾아 보여 주고, --yes 면 지운다 (앱을 끄고 실행)
+  rebind-projects                       업무 ↔ 프로젝트를 1:1 로 다시 맞춘다 (기존 ON 엣지의 시간을 근거로. 앱을 끄고 실행)
+  merge-tasks [--dry] [--days N]        제목만 다른 같은 목표의 업무를 LLM 에 물어 합친다 (--dry: 묻기만. 앱을 끄고 실행)
+  topic-audit [--last N]                지난 배치들의 LLM 응답에서 주제 태그를 모아 필터가 거를 것을 센다 (프롬프트 대 필터 평가)
+  replay-batch ID [ID…]                 저장된 배치의 입력을 지금 프롬프트로 다시 보내 응답을 비교한다 (기록하지 않음. 배치당 LLM 호출 1번)
 
 기본 DB: \(WGDatabase.defaultPath())
 기본 LLM: ChatGPT 로그인(codex), 모델 \(CodexResponsesClient.defaultModel). --base-url 을 주면 OpenAI 호환 서버(openai)로 간주한다
@@ -213,12 +225,21 @@ do {
             print("  \(time) [\(row.trigger)] \(row.appName) | \(row.windowTitle ?? "-") | \(row.url ?? row.docPath ?? "-")\(text)\(row.screenshotPath == nil ? "" : " +shot")")
         }
 
+    case "rebuild-graph" where flag("--from-assignments"):
+        let instance = InstanceLock(databasePath: dbPath)
+        guard instance.acquire() else { fail("이 DB 를 쓰는 WorkGraph 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
+        defer { instance.release() }
+        let stats = try GraphRebuilder(db: db, store: store).rebuildFromAssignments(now: Date().timeIntervalSince1970)
+        print("세션 \(stats.sessions)개, 자료 \(stats.resources)개를 행 판단에서 다시 만들었습니다 (업무 \(stats.tasks)개, 행 \(stats.rows)개)")
+        try printStats()
+
     case "rebuild-graph":
         guard flag("--yes") else { fail("그래프(파생 데이터)를 지우고 원시 행을 전부 미처리로 되돌립니다. 원시 행·스크린샷은 남습니다. 진행하려면 --yes 를 붙이세요.") }
         let instance = InstanceLock(databasePath: dbPath)
         guard instance.acquire() else { fail("이 DB 를 쓰는 WorkGraph 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
         try db.writer.write { conn in
-            try conn.execute(sql: "UPDATE observations SET batch_id = NULL")
+            try conn.execute(sql: "UPDATE observations SET batch_id = NULL, task_id = NULL, resource_relevant = 1")
+            try conn.execute(sql: "UPDATE chat_messages SET batch_id = NULL, task_id = NULL")
             try conn.execute(sql: "DELETE FROM edges")
             try conn.execute(sql: "DELETE FROM nodes")
             try TBox.seed(GraphTx(conn), at: Date().timeIntervalSince1970)
@@ -315,6 +336,212 @@ do {
             try CypherExporter.export(graph).write(toFile: file, atomically: true, encoding: .utf8)
         }
         print("노드 \(graph.nodes.count)개, 엣지 \(graph.edges.count)개 → \(file)")
+
+    case "suggest":
+        let home = NSHomeDirectory()
+        let origin = option("--origin")
+        let roots = (option("--roots") ?? "~/Desktop,~/Documents").split(separator: ",").map { FolderSuggester.expand(String($0).trimmingCharacters(in: .whitespaces), home: home) }
+        let titles = (option("--context") ?? "").split(separator: "|").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let screen = option("--screen")
+        let dry = flag("--dry")
+        guard args.count >= 1 else { fail("사용법: suggest FILE [--origin URL] [--context \"제목|제목\"] [--roots a,b] [--dry]") }
+        let file = FolderSuggester.expand(args[0], home: home)
+        guard FileManager.default.fileExists(atPath: file) else { fail("파일이 없음: \(file)") }
+        let started = Date()
+        let index = FolderIndex.scan(roots: roots, home: home)
+        print("폴더 색인: \(index.folders.count)개 (\(String(format: "%.1f", Date().timeIntervalSince(started)))초)")
+        let openTasks = try db.writer.read { try GraphTx($0).openTasks(limit: 6) }
+        let fileName = (file as NSString).lastPathComponent
+        var contextStrings = titles + openTasks.flatMap { [$0.title] + $0.topics }
+        if let origin { contextStrings.append(origin) }
+        print("후보 (문맥 점수 순):")
+        for folder in index.rank(fileName: fileName, context: contextStrings, limit: 25) {
+            print("  \(folder.relativePath)  — \(folder.sampleFiles.prefix(4).joined(separator: ", "))")
+        }
+        let target: WGDatabase = dry ? try WGDatabase.inMemory() : db
+        let suggester = FolderSuggester(db: target, llm: makeClient().client, home: home)
+        let context = FolderSuggester.Context(recentTitles: titles, screenText: screen, openTasks: openTasks, now: Date().timeIntervalSince1970)
+        let llmStarted = Date()
+        if let suggestion = try await suggester.suggest(filePath: file, originURL: origin, index: index, context: context) {
+            print("제안: \(suggestion.suggestedFolder)  (\(suggestion.source), 신뢰도 \(Int(suggestion.confidence * 100))%, \(String(format: "%.1f", Date().timeIntervalSince(llmStarted)))초)")
+            print("이유: \(suggestion.reason ?? "-")")
+            if !dry { print("기록됨 #\(suggestion.id ?? 0) — 앱의 파일 탭에서 옮길 수 있다") }
+        } else {
+            print("제안 없음 (후보가 없거나 LLM 이 확신하지 못함, \(String(format: "%.1f", Date().timeIntervalSince(llmStarted)))초)")
+        }
+
+    case "clean-topics":
+        let apply = flag("--yes")
+        let victims: [(GraphNode, String)] = try db.writer.read { conn in
+            let tx = GraphTx(conn)
+            let apps = Set(try tx.nodes(label: NodeLabel.app).map(\.title))
+            let projects = Set(try tx.nodes(label: NodeLabel.project).map(\.title))
+            return try tx.nodes(label: NodeLabel.topic).compactMap { node in
+                TopicFilter.rejection(node.title, apps: apps, projects: projects).map { (node, $0) }
+            }
+        }
+        if victims.isEmpty { print("거를 주제가 없습니다."); break }
+        for (node, why) in victims { print("  \(node.title)  — \(why)") }
+        guard apply else { print("\(victims.count)개. 지우려면 --yes 를 붙이세요 (앱을 끈 뒤)."); break }
+        let instance = InstanceLock(databasePath: dbPath)
+        guard instance.acquire() else { fail("이 DB 를 쓰는 WorkGraph 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
+        try db.writer.write { conn in
+            for (node, _) in victims {
+                try conn.execute(sql: "DELETE FROM edges WHERE src = ? OR dst = ?", arguments: [node.id, node.id])
+                try conn.execute(sql: "DELETE FROM nodes WHERE id = ?", arguments: [node.id])
+            }
+        }
+        instance.release()
+        print("주제 \(victims.count)개를 지웠습니다.")
+
+    case "merge-tasks":
+        let dry = flag("--dry")
+        let days = option("--days").flatMap(Double.init) ?? 7
+        let instance = InstanceLock(databasePath: dbPath)
+        guard dry || instance.acquire() else { fail("이 DB 를 쓰는 WorkGraph 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
+        defer { if !dry { instance.release() } }
+        let now = Date().timeIntervalSince1970
+        let titles: [String: String] = try db.writer.read { conn in
+            Dictionary(try GraphTx(conn).nodes(label: NodeLabel.task).map { ($0.key, $0.title) }, uniquingKeysWith: { first, _ in first })
+        }
+        let outcome = try await TaskMerger.run(db: db, llm: makeClient().client, since: now - days * 86_400, now: now, dry: dry)
+        if outcome.groups.isEmpty { print("합칠 업무가 없습니다."); break }
+        for group in outcome.groups {
+            print("  남김: \(titles[group.keep] ?? group.keep)\(group.title.map { " → \($0)" } ?? "")")
+            for key in group.merge { print("    ← \(titles[key] ?? key)") }
+        }
+        print(dry ? "(--dry: 반영하지 않음)" : "업무 \(outcome.merged)개를 합쳤습니다.")
+
+    case "rebind-projects":
+        let instance = InstanceLock(databasePath: dbPath)
+        guard instance.acquire() else { fail("이 DB 를 쓰는 WorkGraph 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
+        let chosen: [(String, String, Double)] = try db.writer.write { conn in
+            let tx = GraphTx(conn)
+            // 예전 방식(행마다 ON, 가중치 = 초)으로 쌓인 엣지를 시간 집계로 옮긴다
+            for edge in try Row.fetchAll(conn, sql: "SELECT * FROM edges WHERE type = 'ON'").map(GraphTx.edge) {
+                guard let task = try tx.node(id: edge.src), let project = try tx.node(id: edge.dst) else { continue }
+                let known = task.props["project_seconds"]?.objectValue?[project.key]?.doubleValue ?? 0
+                if edge.weight > known { try tx.addProjectSeconds(taskId: task.id, projectKey: project.key, seconds: edge.weight - known, at: edge.lastAt) }
+            }
+            return try tx.rebindProjects(at: Date().timeIntervalSince1970).compactMap { item in
+                guard let task = try tx.node(id: item.taskId), let project = try tx.node(id: item.projectId) else { return nil }
+                return (task.title, project.title, item.seconds)
+            }
+        }
+        instance.release()
+        for (task, project, seconds) in chosen { print("  \(task) → \(project)  (\(Int(seconds))초)") }
+        print("업무 ↔ 프로젝트 \(chosen.count)쌍. 나머지 연결은 지웠습니다.")
+
+    case "topic-audit":
+        let last = option("--last").flatMap(Int.init) ?? 200
+        let (apps, projects) = try db.writer.read { conn -> (Set<String>, Set<String>) in
+            let tx = GraphTx(conn)
+            return (Set(try tx.nodes(label: NodeLabel.app).map(\.title)), Set(try tx.nodes(label: NodeLabel.project).map(\.title)))
+        }
+        var total = 0, rejected: [String: Int] = [:], examples: [String: Set<String>] = [:], batchesWithRejects = 0
+        for batch in try store.recentBatches(limit: last).reversed() where batch.status == "ok" {
+            guard let raw = batch.llmPatch, let patch = AssignmentPatch.decodeLenient(from: Data(raw.utf8)) else { continue }
+            var hit = false
+            for work in patch.work {
+                for topic in work.topics {
+                    total += 1
+                    if let why = TopicFilter.rejection(topic, apps: apps, projects: projects) {
+                        rejected[why, default: 0] += 1
+                        examples[why, default: []].insert(topic)
+                        hit = true
+                    }
+                }
+            }
+            if hit { batchesWithRejects += 1 }
+        }
+        let rejectedTotal = rejected.values.reduce(0, +)
+        print("주제 태그 \(total)개 중 필터가 거르는 것 \(rejectedTotal)개 (\(total == 0 ? 0 : rejectedTotal * 100 / total)%), 배치 \(batchesWithRejects)개에서")
+        for (why, count) in rejected.sorted(by: { $0.value > $1.value }) {
+            print("  \(why): \(count)  예) \(examples[why, default: []].sorted().prefix(12).joined(separator: ", "))")
+        }
+
+    case "replay-batch":
+        let ids = args.compactMap(Int64.init)
+        guard !ids.isEmpty else { fail("사용법: replay-batch ID [ID…]") }
+        let client = makeClient().client
+        let (apps, projects) = try db.writer.read { conn -> (Set<String>, Set<String>) in
+            let tx = GraphTx(conn)
+            return (Set(try tx.nodes(label: NodeLabel.app).map(\.title)), Set(try tx.nodes(label: NodeLabel.project).map(\.title)))
+        }
+        func describe(_ patch: AssignmentPatch) -> [String] {
+            let names = Dictionary(patch.tasks.map { ($0.ref, "\($0.match)\($0.id.map { "(\($0))" } ?? "") \($0.title ?? "")") }, uniquingKeysWith: { first, _ in first })
+            var lines = patch.rows.map { "  rows \($0.rows) → \($0.task.flatMap { names[$0] } ?? "(없음)")\(($0.resource ?? true) ? "" : " [보이기만]")" }
+            for work in patch.work {
+                let flagged = work.topics.map { topic in TopicFilter.rejection(topic, apps: apps, projects: projects).map { "\(topic)✗(\($0))" } ?? topic }
+                lines.append("  work \(names[work.task] ?? work.task): \(work.summary) — topics: \(flagged.joined(separator: ", "))")
+            }
+            return lines
+        }
+        for id in ids {
+            guard let batch = try store.batch(id: id), let userPrompt = batch.userPrompt else { print("#\(id): 배치 없음 또는 프롬프트 미저장"); continue }
+            print("=== 배치 #\(id) (\(batch.rowCount)행, \(Date(timeIntervalSince1970: batch.startedAt).formatted(date: .omitted, time: .shortened))) ===")
+            if let raw = batch.llmPatch, let old = AssignmentPatch.decodeLenient(from: Data(raw.utf8)) {
+                print("이전 응답 (배정 \(old.rows.count)줄):"); describe(old).forEach { print($0) }
+            }
+            let started = Date()
+            let result = try await client.callFunction(system: OntologyPrompt.system, user: userPrompt, tool: AssignmentSchema.tool)
+            guard let fresh = AssignmentPatch.decodeLenient(from: result.arguments) else { print("새 응답: 해석 실패\n\(result.raw.prefix(300))"); continue }
+            print("지금 프롬프트 (배정 \(fresh.rows.count)줄, \(String(format: "%.1f", Date().timeIntervalSince(started)))초, 토큰 \(result.promptTokens)+\(result.completionTokens)):")
+            describe(fresh).forEach { print($0) }
+        }
+
+    case "tasks":
+        let last = option("--last").flatMap(Int.init) ?? 20
+        let rows: [(GraphNode, Int)] = try db.writer.read { conn in
+            let tx = GraphTx(conn)
+            return try tx.nodes(label: NodeLabel.task).map { ($0, try tx.edges(to: $0.id, type: EdgeType.partOf).count) }
+        }
+        for (node, sessions) in rows.sorted(by: { ($0.0.props["last_active"]?.doubleValue ?? 0) > ($1.0.props["last_active"]?.doubleValue ?? 0) }).prefix(last) {
+            let minutes = Int((node.props["active_seconds"]?.doubleValue ?? 0) / 60)
+            let last = Date(timeIntervalSince1970: node.props["last_active"]?.doubleValue ?? 0).formatted(date: .numeric, time: .shortened)
+            print("#\(node.id)  \(node.title)  — \(minutes)분, 세션 \(sessions)개, 마지막 \(last)  [\(node.key)]")
+        }
+
+    case "sessions":
+        guard let taskId = args.first.flatMap(Int64.init) else { fail("사용법: sessions TASK_ID") }
+        let sessions: [GraphNode] = try db.writer.read { conn in
+            let tx = GraphTx(conn)
+            return try tx.edges(to: taskId, type: EdgeType.partOf).compactMap { try tx.node(id: $0.src) }
+        }
+        for node in sessions.sorted(by: { ($0.props["start"]?.doubleValue ?? 0) > ($1.props["start"]?.doubleValue ?? 0) }) {
+            let start = Date(timeIntervalSince1970: node.props["start"]?.doubleValue ?? 0).formatted(date: .numeric, time: .shortened)
+            let end = Date(timeIntervalSince1970: node.props["end"]?.doubleValue ?? 0).formatted(date: .omitted, time: .shortened)
+            print("#\(node.id)  \(start) – \(end)  \(node.title)")
+        }
+
+    case "resume-plan":
+        let sessionId = option("--session").flatMap(Int64.init)
+        let nodeId = sessionId ?? args.first.flatMap(Int64.init)
+        guard let nodeId else { fail("사용법: resume-plan TASK_ID | --session SESSION_ID") }
+        let home = NSHomeDirectory()
+        let plan: ResumePlan? = try db.writer.read { conn in
+            let tx = GraphTx(conn)
+            guard let node = try tx.node(id: nodeId) else { return nil }
+            let exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+            if node.label == NodeLabel.task { return try ResumePlanner.plan(task: node, tx: tx, home: home, fileExists: exists) }
+            if node.label == NodeLabel.session { return try ResumePlanner.plan(session: node, tx: tx, home: home, fileExists: exists) }
+            return nil
+        }
+        guard let plan else { fail("업무나 세션 노드가 아님: #\(nodeId)") }
+        print("다시 열기: \(plan.title)  ([x] = 기본으로 켜는 것)")
+        for item in plan.items {
+            let target = item.target.hasPrefix(home) ? "~" + item.target.dropFirst(home.count) : item.target
+            let when = Date(timeIntervalSince1970: item.lastAt).formatted(date: .omitted, time: .shortened)
+            print("  \(item.selected ? "[x]" : "[ ]") [\(item.kind.rawValue)] \(item.title)  → \(target)\(item.appBundle.map { "  (\($0))" } ?? "")  \(Int(item.seconds / 60))분, 마지막 \(when)")
+        }
+        if plan.items.isEmpty { print("  (열 것이 없음)") }
+
+    case "suggestions":
+        let last = option("--last").flatMap(Int.init) ?? 20
+        for item in try FileSuggestionStore(db).recent(limit: last).reversed() {
+            let time = Date(timeIntervalSince1970: item.ts).formatted(date: .numeric, time: .shortened)
+            print("#\(item.id ?? 0) \(time) [\(item.status)] \(item.fileName) → \(item.suggestedFolder) (\(item.source) \(Int(item.confidence * 100))%)\(item.movedTo.map { " 옮긴 곳: \($0)" } ?? "")")
+        }
 
     case "neighbors":
         let hops = option("--hops").flatMap(Int.init) ?? 2

@@ -112,17 +112,17 @@ final class GraphTxTests: XCTestCase {
             try tx.upsertEdge(src: task, dst: type.id, type: "INSTANCE_OF", props: [:], addWeight: 0, at: 1)
             let topic = try tx.upsertNode(label: "Topic", key: "react", subtype: nil, title: "React", props: [:], at: 1)
             try tx.upsertEdge(src: task, dst: topic, type: "ABOUT", props: [:], addWeight: 0, at: 1)
-            let session = try tx.upsertNode(label: "Session", key: "s_1", subtype: nil, title: "s", props: ["end": 500], at: 1)
+            let session = try tx.upsertNode(label: "Session", key: "s_1", subtype: nil, title: "s", props: ["end": 500, "summary": "카드 컴포넌트를 만들었다"], at: 1)
             try tx.upsertEdge(src: session, dst: task, type: "PART_OF", props: [:], addWeight: 0, at: 1)
             let res = try tx.upsertNode(label: "Resource", key: "https://ui.shadcn.com/docs", subtype: "Documentation", title: "shadcn docs", props: [:], at: 1)
             try tx.upsertEdge(src: session, dst: res, type: "TOUCHED", props: [:], addWeight: 30, at: 400)
             try tx.upsertNode(label: "Task", key: "t_done", subtype: nil, title: "끝난 업무", props: ["status": "done", "last_active": 900], at: 1)
 
             let digests = try tx.openTasks(limit: 5)
-            XCTAssertEqual(digests.count, 1)
+            XCTAssertEqual(digests.count, 1, "끝난 업무는 후보가 아니다")
             XCTAssertEqual(digests.first, TaskDigest(id: "t_1", title: "대시보드 카드 UI 구현", taskType: "코드작성",
                                                      topics: ["React"], recentResources: ["shadcn docs"], lastActive: 500,
-                                                     resourceKeys: ["https://ui.shadcn.com/docs"], apps: []))
+                                                     resourceKeys: ["https://ui.shadcn.com/docs"], apps: [], recentSummaries: ["카드 컴포넌트를 만들었다"]))
             XCTAssertEqual(try tx.latestSession(ofTask: task)?.key, "s_1")
         }
     }

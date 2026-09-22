@@ -10,7 +10,7 @@ public struct BatchConfig: Sendable {
     /// 수집기 생존 신호 간격(60초)의 1.5배. 이보다 긴 간격은 체류시간으로 치지 않는다.
     public var maxGap: Double = 90
     public var snippetChars: Int = 300
-    public var snippetTopN: Int = 12
+    public var snippetTopN: Int = 24
     public var fetchLimit: Int = 3000
     public var maxBackoff: Double = 1800
     /// 같은 구간에서 "쓸 수 없는 답"이 이만큼 반복되면 그 구간을 건너뛴다.
@@ -93,13 +93,14 @@ public actor OntologyBatcher {
         let chats = (try? store.unprocessedChatMessages(upTo: windowEnd, notOlderThan: first.ts - 24 * 3600)) ?? []
         let rows = EventCompressor.merge(compressed, chats: chats, home: home, fileExists: fileExists, snippetChars: config.snippetChars)
 
-        let openTasks = try await db.writer.read { try GraphTx($0).openTasks(limit: 8) }
+        // 최근 7일의 업무 전부 (최대 40개): 행이 어느 목표에 기여하는지 보려면 목표 목록이 다 있어야 한다
+        let openTasks = try await db.writer.read { try GraphTx($0).openTasks(limit: 40, since: now - 7 * 86_400) }
         let prompt = OntologyPrompt.build(rows: rows, openTasks: openTasks, now: now)
         let model = llm.modelName
 
         let result: LLMResult
         do {
-            result = try await llm.callFunction(system: prompt.system, user: prompt.user, tool: OntologySchema.tool)
+            result = try await llm.callFunction(system: prompt.system, user: prompt.user, tool: AssignmentSchema.tool)
         } catch {
             // 서버가 죽었거나 토큰이 만료된 경우: 데이터는 그대로 두고 기다린다. 건너뛰지 않는다.
             let message = (error as? LLMError)?.description ?? "\(error)"
@@ -108,9 +109,9 @@ public actor OntologyBatcher {
             return .failed(message)
         }
 
-        let patch = OntologyPatch.decodeLenient(from: result.arguments)
-        guard let patch, !patch.segments.isEmpty else {
-            let message = "LLM 응답에 세그먼트가 없음"
+        let patch = AssignmentPatch.decodeLenient(from: result.arguments)
+        guard let patch, !patch.rows.isEmpty else {
+            let message = "LLM 응답에 행 배정이 없음"
             let headId = first.id ?? -1
             contentFailures = contentFailures.head == headId ? (headId, contentFailures.count + 1) : (headId, 1)
             let giveUp = contentFailures.count >= config.maxContentFailures
@@ -122,25 +123,50 @@ public actor OntologyBatcher {
             return .failed(message)
         }
 
-        // 짧은 구간이 새 업무를 남발하지 않게 다듬은 뒤 반영한다.
-        let normalized = SegmentNormalizer().normalize(patch, rows: rows, openTasks: openTasks)
+        // 행마다 정해진 업무를 그래프에 반영하고, 판단 원본은 원시 행에 남긴다.
         let stats = try await db.writer.write { conn -> ApplyStats in
             let tx = GraphTx(conn)
-            let stats = try OntologyApplier().apply(normalized, rows: rows, tx: tx, now: now)
+            let (stats, assignments) = try AssignmentApplier().apply(patch, rows: rows, tx: tx, now: now)
             var record = BatchRecord(startedAt: now, finishedAt: Date().timeIntervalSince1970, fromObs: first.id, toObs: last.id,
                                      rowCount: rows.count, status: "ok", model: result.model,
                                      promptTokens: result.promptTokens, completionTokens: result.completionTokens,
                                      rawResponse: String(result.raw.prefix(20_000)),
                                      stats: (try? JSONEncoder().encode(stats)).flatMap { String(data: $0, encoding: .utf8) },
                                      systemPrompt: prompt.system, userPrompt: prompt.user,
-                                     llmPatch: patch.prettyJSON, appliedPatch: normalized.prettyJSON)
+                                     llmPatch: patch.prettyJSON, appliedPatch: Self.describe(assignments, tx: tx))
             try record.insert(conn)
-            try EventStore.mark(conn, observationIds: includedIds, batchId: record.id ?? conn.lastInsertedRowID)
-            try EventStore.markChats(conn, ids: rows.flatMap(\.chatMessageIds), batchId: record.id ?? conn.lastInsertedRowID)
+            let batchId = record.id ?? conn.lastInsertedRowID
+            try EventStore.mark(conn, observationIds: includedIds, batchId: batchId)
+            try EventStore.markChats(conn, ids: rows.flatMap(\.chatMessageIds), batchId: batchId)
+            for item in assignments {
+                try EventStore.assign(conn, observationIds: item.row.observationIds, taskId: item.taskId, relevant: item.resource)
+                try EventStore.assignChats(conn, ids: item.row.chatMessageIds, taskId: item.taskId)
+            }
             return stats
         }
         failures = 0; nextAllowedAt = 0; contentFailures = (-1, 0)
+        // 새 업무가 생겼으면 제목만 다른 같은 목표가 아닌지 LLM 에 묻는다 (합치기)
+        if stats.tasksCreated > 0 {
+            var merged = stats
+            if let outcome = try? await TaskMerger.run(db: db, llm: llm, since: now - 7 * 86_400, now: now) { merged.tasksMerged = outcome.merged }
+            return .ok(merged)
+        }
         return .ok(stats)
+    }
+
+    /// 사람이 읽는 배정 결과: 행 | 업무 | 자료 여부
+    static func describe(_ assignments: [RowAssignment], tx: GraphTx) -> String {
+        var titles: [Int64: String] = [:]
+        var lines: [String] = ["row | task | resource"]
+        for item in assignments {
+            var title = "-"
+            if let taskId = item.taskId {
+                if titles[taskId] == nil { titles[taskId] = (try? tx.node(id: taskId))?.title ?? "#\(taskId)" }
+                title = titles[taskId] ?? "-"
+            }
+            lines.append("\(item.row.row) | \(title)\(item.resource ? "" : " | 보이기만 함")")
+        }
+        return lines.joined(separator: "\n")
     }
 
     private func recordFailure(message: String, model: String, first: Observation, last: Observation, rowCount: Int,

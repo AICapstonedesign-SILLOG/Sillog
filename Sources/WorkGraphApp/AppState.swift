@@ -26,13 +26,25 @@ final class AppState: ObservableObject {
     @Published var codexUsage: CodexUsage?
     /// 로그인해야 쓸 수 있다. `.ready` 가 되기 전에는 수집기도 배치도 돌지 않는다.
     @Published var phase: AppPhase = .login
+    @Published var selectedTab: MainWindow.Tab = MainWindow.initialTab
+    /// 파일 정리 제안. 대기 중인 것이 앞에 온다.
+    @Published var fileSuggestions: [FileSuggestion] = []
+    @Published var fileError: String?
+    @Published var notificationsDenied = false
+    @Published var taskList: [TaskSummary] = []
+    @Published var resumeRequest: ResumeRequest?
     @Published var bootstrapped = false
 
     let databasePath = WGDatabase.defaultPath()
-    private var db: WGDatabase?
-    private var store: EventStore?
+    private(set) var db: WGDatabase?
+    private(set) var store: EventStore?
     private var coordinator: CollectorCoordinator?
     private var batcher: OntologyBatcher?
+    var suggester: FolderSuggester?
+    var folderIndex: FolderIndex?
+    var folderIndexAt = 0.0
+    var folderIndexTask: Task<FolderIndex, Never>?
+    let notifier = SuggestionNotifier()
     private var tasks: [Task<Void, Never>] = []
     private let codexAuth = CodexAuthManager()
     private var loginTask: Task<Void, Never>?
@@ -57,6 +69,9 @@ final class AppState: ObservableObject {
             self.store = store
             self.coordinator = coordinator
             self.batcher = OntologyBatcher(db: database, llm: makeClient())
+            self.suggester = FolderSuggester(db: database, llm: makeClient())
+            notifier.onAction = { [weak self] action, id in Task { @MainActor in self?.handleNotificationAction(action, id: id) } }
+            notifier.onDenied = { [weak self] denied in Task { @MainActor in self?.notificationsDenied = denied } }
         } catch {
             startupError = "데이터베이스를 열 수 없습니다: \(error.localizedDescription)"
         }
@@ -97,6 +112,7 @@ final class AppState: ObservableObject {
     private func startServices() {
         guard !servicesRunning, let coordinator else { return }
         servicesRunning = true
+        notifier.checkStatus()
         start(coordinator)
     }
 
@@ -122,6 +138,9 @@ final class AppState: ObservableObject {
         tasks.append(Task {
             await coordinator.setOnChange { [weak self] status in
                 Task { @MainActor in self?.status = status }
+            }
+            await coordinator.setOnFileAppeared { [weak self] path, origin in
+                Task { @MainActor in await self?.fileDownloaded(path: path, origin: origin) }
             }
             await coordinator.start()
         })
@@ -255,7 +274,7 @@ final class AppState: ObservableObject {
             }
             break
         }
-        if applied { graphVersion += 1 }
+        if applied { graphVersion += 1; refreshTasks() }
         refresh()
     }
 
@@ -270,6 +289,8 @@ final class AppState: ObservableObject {
         NSApp.setActivationPolicy(settings.showDockIcon ? .regular : .accessory)
         let collectorSettings = settings.collector
         let client = makeClient()
+        if let db { suggester = FolderSuggester(db: db, llm: client) }
+        folderIndex = nil                                   // 검색 폴더가 바뀌었을 수 있으니 다음 제안 때 다시 색인
         Task { [coordinator, batcher] in
             await coordinator?.update(settings: collectorSettings)
             await batcher?.setLLM(client)
@@ -309,6 +330,7 @@ final class AppState: ObservableObject {
         if newRecent != recent { recent = newRecent }
         let newBatches = (try? store.recentBatchSummaries(limit: 100)) ?? []
         if newBatches != batches { batches = newBatches }
+        refreshFileSuggestions()
     }
 
     func observationText(_ textId: Int64) -> String? {

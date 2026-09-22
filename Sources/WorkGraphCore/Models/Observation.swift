@@ -17,14 +17,20 @@ public struct Observation: Codable, Equatable, Sendable, FetchableRecord, Mutabl
     public var textId: Int64?
     public var screenshotPath: String?
     public var batchId: Int64?
+    /// LLM 이 정한 업무 (Task 노드 id). nil 이면 아직 안 정했거나 일이 아닌 행
+    public var taskId: Int64?
+    /// 이 행의 파일·페이지가 그 업무의 자료인지 (false: 보이기만 했음)
+    public var resourceRelevant: Bool
 
     public init(id: Int64? = nil, ts: Double, trigger: String, appBundle: String, appName: String,
                 windowTitle: String? = nil, url: String? = nil, docPath: String? = nil,
-                textId: Int64? = nil, screenshotPath: String? = nil, batchId: Int64? = nil) {
+                textId: Int64? = nil, screenshotPath: String? = nil, batchId: Int64? = nil,
+                taskId: Int64? = nil, resourceRelevant: Bool = true) {
         self.id = id; self.ts = ts; self.trigger = trigger
         self.appBundle = appBundle; self.appName = appName
         self.windowTitle = windowTitle; self.url = url; self.docPath = docPath
         self.textId = textId; self.screenshotPath = screenshotPath; self.batchId = batchId
+        self.taskId = taskId; self.resourceRelevant = resourceRelevant
     }
 
     enum CodingKeys: String, CodingKey {
@@ -38,6 +44,8 @@ public struct Observation: Codable, Equatable, Sendable, FetchableRecord, Mutabl
         case textId = "text_id"
         case screenshotPath = "screenshot_path"
         case batchId = "batch_id"
+        case taskId = "task_id"
+        case resourceRelevant = "resource_relevant"
     }
 
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }
@@ -60,11 +68,12 @@ public struct ChatMessage: Codable, Equatable, Sendable, FetchableRecord, Mutabl
     public var text: String
     public var ingestedAt: Double
     public var batchId: Int64?
+    public var taskId: Int64?
 
     public init(id: Int64? = nil, ts: Double, tool: String, sessionId: String, cwd: String?, text: String,
-                ingestedAt: Double = Date().timeIntervalSince1970, batchId: Int64? = nil) {
+                ingestedAt: Double = Date().timeIntervalSince1970, batchId: Int64? = nil, taskId: Int64? = nil) {
         self.id = id; self.ts = ts; self.tool = tool; self.sessionId = sessionId; self.cwd = cwd; self.text = text
-        self.ingestedAt = ingestedAt; self.batchId = batchId
+        self.ingestedAt = ingestedAt; self.batchId = batchId; self.taskId = taskId
     }
 
     enum CodingKeys: String, CodingKey {
@@ -73,6 +82,7 @@ public struct ChatMessage: Codable, Equatable, Sendable, FetchableRecord, Mutabl
         case cwd, text
         case ingestedAt = "ingested_at"
         case batchId = "batch_id"
+        case taskId = "task_id"
     }
 
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }

@@ -119,9 +119,10 @@ final class ChatRowTests: XCTestCase {
             let tx = GraphTx(conn)
             try TBox.seed(tx, at: 0)
             let patch = try Fixtures.patch("""
-            {"segments":[{"from_row":1,"to_row":\(rows.count),"task":{"match":"new","title":"대시보드 카드 UI 구현","task_type":"코드작성"},"summary":"s","topics":["React"]}]}
+            {"tasks":[{"ref":"A","match":"new","title":"대시보드 카드 UI 구현","task_type":"코드작성"}],"rows":[{"rows":"1-\(rows.count)","task":"A"}],
+             "work":[{"task":"A","summary":"s","topics":["React"]}]}
             """)
-            _ = try OntologyApplier().apply(patch, rows: rows, tx: tx, now: 2_000_000)
+            _ = try AssignmentApplier().apply(patch, rows: rows, tx: tx, now: 2_000_000)
             let chat = try XCTUnwrap(tx.node(label: "Resource", key: "chat:claude-code:s1"))
             XCTAssertEqual(chat.subtype, "AIChat")
             XCTAssertEqual(try tx.edges(to: chat.id, type: "TOUCHED").count, 1)
@@ -141,9 +142,9 @@ final class ChatBatchTests: XCTestCase {
         }
         try store.insertChatMessages([ChatMessage(ts: 50, tool: "claude-code", sessionId: "s1", cwd: "/p", text: "TaskCard 고쳐줘")])
         let llm = StubLLM([.success("""
-        {"segments":[{"from_row":1,"to_row":5,"task":{"match":"new","title":"카드 UI","task_type":"코드작성"},"summary":"s","topics":[]}]}
+        {"tasks":[{"ref":"A","match":"new","title":"카드 UI","task_type":"코드작성"}],"rows":[{"rows":"1-5","task":"A"}],"work":[{"task":"A","summary":"s","topics":[]}]}
         """), .success("""
-        {"segments":[{"from_row":1,"to_row":1,"task":{"match":"new","title":"기타 작업","task_type":"기타"},"summary":"s","topics":[]}]}
+        {"tasks":[{"ref":"A","match":"new","title":"다른 작업","task_type":"기타"}],"rows":[{"rows":"1","task":"A"}],"work":[{"task":"A","summary":"s","topics":[]}]}
         """)])
         let batcher = OntologyBatcher(db: db, llm: llm, home: "/Users/me", fileExists: { _ in false }, clock: { 2_000 })
         guard case .ok = await batcher.runIfDue(force: true) else { return XCTFail("첫 배치 성공해야 함") }

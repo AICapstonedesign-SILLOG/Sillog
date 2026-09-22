@@ -37,6 +37,11 @@ struct SettingsView: View {
                 if let launchError { Text(launchError).font(.callout).foregroundStyle(.red) }
             }
 
+            Section("내려받은 파일 정리") {
+                Toggle("새 파일의 정리 위치 제안", isOn: $state.settings.suggestFolders)
+                FolderRootsView()
+            }
+
             Section("기록하지 않을 앱") {
                 ExcludedAppsView()
                 Text("제외한 앱은 이름과 시간만 남고 창 제목, 주소, 화면 텍스트, 스크린샷은 기록되지 않습니다.")

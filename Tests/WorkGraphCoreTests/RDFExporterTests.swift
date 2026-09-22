@@ -9,7 +9,7 @@ final class RDFExporterTests: XCTestCase {
         return try db.writer.write { conn -> String in
             let tx = GraphTx(conn)
             try TBox.seed(tx, at: 0)
-            _ = try OntologyApplier().apply(try Fixtures.patch(Fixtures.frontendPatchJSON), rows: Fixtures.frontendRows(), tx: tx, now: 2_000_000)
+            _ = try AssignmentApplier().apply(try Fixtures.patch(Fixtures.frontendPatchJSON), rows: Fixtures.frontendRows(), tx: tx, now: 2_000_000)
             return RDFExporter.export(try tx.subgraph(since: nil, includeTBox: true))
         }
     }

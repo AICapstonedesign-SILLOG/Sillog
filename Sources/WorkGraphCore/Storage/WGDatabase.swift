@@ -191,6 +191,49 @@ public final class WGDatabase: @unchecked Sendable {
             try db.execute(sql: "ALTER TABLE chat_messages ADD COLUMN batch_id INTEGER REFERENCES batches(id)")
             try db.execute(sql: "CREATE INDEX idx_chat_messages_batch ON chat_messages(batch_id, ts)")
         }
+        migrator.registerMigration("v6-file-suggestions") { db in
+            // 내려받은 파일을 어디에 둘지 제안한 기록과, 사용자의 수락·거절에서 배운 규칙
+            try db.execute(sql: """
+            CREATE TABLE file_suggestions (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              ts REAL NOT NULL,
+              path TEXT NOT NULL,
+              file_name TEXT NOT NULL,
+              origin_url TEXT,
+              suggested_folder TEXT NOT NULL,
+              confidence REAL NOT NULL,
+              reason TEXT,
+              source TEXT NOT NULL,
+              status TEXT NOT NULL,
+              moved_to TEXT,
+              decided_at REAL,
+              context TEXT
+            );
+            CREATE INDEX idx_file_suggestions_status ON file_suggestions(status, ts);
+            CREATE TABLE folder_prefs (
+              key TEXT PRIMARY KEY,
+              folder TEXT NOT NULL,
+              count INTEGER NOT NULL DEFAULT 1,
+              updated_at REAL NOT NULL
+            );
+            CREATE VIEW v_file_suggestions AS
+              SELECT id, datetime(ts, 'unixepoch', 'localtime') AS time, file_name, origin_url, suggested_folder, confidence, reason, source, status, moved_to
+              FROM file_suggestions;
+            """)
+        }
+        migrator.registerMigration("v7-row-tasks") { db in
+            // 행마다 어느 업무인지 (LLM 의 판단 원본). 세션·그래프는 여기서 다시 계산할 수 있다
+            try db.execute(sql: """
+            ALTER TABLE observations ADD COLUMN task_id INTEGER;
+            ALTER TABLE observations ADD COLUMN resource_relevant INTEGER NOT NULL DEFAULT 1;
+            ALTER TABLE chat_messages ADD COLUMN task_id INTEGER;
+            CREATE INDEX idx_observations_task ON observations(task_id);
+            CREATE VIEW v_row_tasks AS
+              SELECT o.id, datetime(o.ts, 'unixepoch', 'localtime') AS time, o.app_name, o.window_title, o.url, o.doc_path,
+                     t.title AS task, o.resource_relevant, o.batch_id
+              FROM observations o LEFT JOIN nodes t ON t.id = o.task_id;
+            """)
+        }
         return migrator
     }
 }

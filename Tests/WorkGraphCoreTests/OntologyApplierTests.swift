@@ -24,18 +24,17 @@ enum Fixtures {
         ]
     }
 
+    /// 행 6개가 전부 한 업무. 문제 하나(4행, 5행 페이지로 해결), 나중에 할 일 하나(6행)
     static let frontendPatchJSON = """
-    {"segments":[{"from_row":1,"to_row":6,
-      "task":{"match":"new","title":"대시보드 카드 UI 구현","task_type":"코드작성"},
-      "summary":"TaskCard 컴포넌트 구현, key prop 경고 해결",
-      "topics":["React","shadcn/ui"],
-      "problems":[{"row":4,"kind":"build","message":"React key prop warning","resolved_by_row":5}],
-      "later_items":[{"row":6,"text":"카드 간격 16px로 조정"}],
-      "switch_kind":null}]}
+    {"tasks":[{"ref":"A","match":"new","title":"대시보드 카드 UI 구현","task_type":"코드작성"}],
+     "rows":[{"rows":"1-6","task":"A"}],
+     "work":[{"task":"A","summary":"TaskCard 컴포넌트 구현, key prop 경고 해결","topics":["React","shadcn/ui"]}],
+     "problems":[{"row":4,"kind":"build","message":"React key prop warning","resolved_by_row":5}],
+     "later_items":[{"row":6,"text":"카드 간격 16px로 조정"}]}
     """
 
-    static func patch(_ json: String) throws -> OntologyPatch {
-        try JSONDecoder().decode(OntologyPatch.self, from: Data(json.utf8))
+    static func patch(_ json: String) throws -> AssignmentPatch {
+        try JSONDecoder().decode(AssignmentPatch.self, from: Data(json.utf8))
     }
 }
 
@@ -51,7 +50,7 @@ final class OntologyApplierTests: XCTestCase {
         let rows = Fixtures.frontendRows()
         try db.writer.write { conn in
             let tx = GraphTx(conn)
-            let stats = try OntologyApplier().apply(try Fixtures.patch(Fixtures.frontendPatchJSON), rows: rows, tx: tx, now: 2_000_000)
+            let (stats, assignments) = try AssignmentApplier().apply(try Fixtures.patch(Fixtures.frontendPatchJSON), rows: rows, tx: tx, now: 2_000_000)
             XCTAssertEqual(stats.sessions, 1)
             XCTAssertEqual(stats.tasksCreated, 1)
             XCTAssertEqual(stats.resources, 4)
@@ -59,6 +58,8 @@ final class OntologyApplierTests: XCTestCase {
             XCTAssertEqual(stats.problems, 1)
             XCTAssertEqual(stats.laterItems, 1)
             XCTAssertEqual(stats.uncoveredRows, 0)
+            XCTAssertEqual(assignments.count, 6)
+            XCTAssertTrue(assignments.allSatisfy { $0.taskId != nil && $0.resource })
 
             let counts = try tx.counts().nodesByLabel
             XCTAssertEqual(counts["Task"], 1)
@@ -80,6 +81,7 @@ final class OntologyApplierTests: XCTestCase {
             let session = try XCTUnwrap(tx.nodes(label: "Session").first)
             XCTAssertEqual(session.props["start"], .number(rows[0].start))
             XCTAssertEqual(session.props["end"], .number(rows[5].end))
+            XCTAssertEqual(session.props["active_seconds"], 5280)
             XCTAssertEqual(session.props["summary"], "TaskCard 컴포넌트 구현, key prop 경고 해결")
             XCTAssertEqual(try tx.edges(from: session.id, type: "PART_OF").first?.dst, task.id)
 
@@ -108,26 +110,68 @@ final class OntologyApplierTests: XCTestCase {
             let code = try XCTUnwrap(tx.node(label: "Resource", key: "code:dashboard/TaskCard.tsx"))
             let project = try XCTUnwrap(tx.node(label: "Project", key: "project:dashboard"))
             XCTAssertEqual(try tx.edges(from: code.id, type: "BELONGS_TO").first?.dst, project.id)
-            XCTAssertEqual(try tx.edges(from: task.id, type: "ON").first?.dst, project.id)
+            let on = try XCTUnwrap(tx.edges(from: task.id, type: "ON").first)
+            XCTAssertEqual(on.dst, project.id)
+            XCTAssertEqual(on.weight, Double(rows[0].dwell), "업무 → 프로젝트 가중치 = 그 프로젝트 파일에 머문 초")
         }
     }
 
-    func testFollowUpSegmentExtendsSessionWhenGapIsShort() throws {
+    func testRowsAreJudgedOneByOneNotAsABatch() throws {
+        // 1~4행 카드 UI, 5행(스택오버플로 대신 유튜브라 치자) 다른 일, 6행 다시 카드 UI, 그리고 일이 아닌 행 하나
+        let db = try makeDB()
+        var rows = Fixtures.frontendRows()
+        rows.append(ActivityRow(row: 7, start: rows[5].end, end: rows[5].end + 30, dwell: 30, app: "loginwindow", appBundle: "com.apple.loginwindow",
+                                title: nil, uri: nil, type: nil, projectKey: nil, projectTitle: nil, snippet: nil, observationIds: [7]))
+        let patch = try Fixtures.patch("""
+        {"tasks":[{"ref":"A","match":"new","title":"대시보드 카드 UI 구현","task_type":"코드작성"},
+                  {"ref":"B","match":"new","title":"YouTube 시청","task_type":"기타"}],
+         "rows":[{"rows":"1-4","task":"A"},{"rows":"5","task":"B"},{"rows":"6","task":"A"},{"rows":"7","task":null}],
+         "work":[{"task":"A","summary":"카드 구현","topics":["React"]},{"task":"B","summary":"영상 시청","topics":[]}]}
+        """)
+        try db.writer.write { conn in
+            let tx = GraphTx(conn)
+            let (stats, assignments) = try AssignmentApplier().apply(patch, rows: rows, tx: tx, now: 2_000_000)
+            XCTAssertEqual(stats.tasksCreated, 2)
+            XCTAssertEqual(stats.sessions, 2, "끼어든 업무는 제 세션을 갖고, 앞뒤 업무의 세션은 하나로 이어진다")
+            XCTAssertEqual(stats.unassignedRows, 1)
+            XCTAssertNil(assignments[6].taskId)
+
+            let card = try XCTUnwrap(tx.nodes(label: "Task").first { $0.title == "대시보드 카드 UI 구현" })
+            let tube = try XCTUnwrap(tx.nodes(label: "Task").first { $0.title == "YouTube 시청" })
+            XCTAssertEqual(card.props["active_seconds"], .number(Double(rows[0...3].reduce(0) { $0 + $1.dwell } + rows[5].dwell)))
+            XCTAssertEqual(tube.props["active_seconds"], .number(Double(rows[4].dwell)))
+
+            let sessions = try tx.nodes(label: "Session")
+            let cardSession = try XCTUnwrap(sessions.first { try tx.edges(from: $0.id, type: "PART_OF").first?.dst == card.id })
+            let tubeSession = try XCTUnwrap(sessions.first { try tx.edges(from: $0.id, type: "PART_OF").first?.dst == tube.id })
+            XCTAssertEqual(cardSession.props["start"], .number(rows[0].start))
+            XCTAssertEqual(cardSession.props["end"], .number(rows[5].end), "끼어든 뒤 이어진 행까지 한 세션")
+            XCTAssertEqual(tubeSession.props["start"], .number(rows[4].start))
+            // 흐름: 카드 → 유튜브 → 카드
+            XCTAssertEqual(try tx.edges(from: cardSession.id, type: "SWITCHED_TO").first?.dst, tubeSession.id)
+            XCTAssertEqual(try tx.edges(from: tubeSession.id, type: "SWITCHED_TO").first?.dst, cardSession.id)
+            // 5행의 자료(스택오버플로 페이지)는 유튜브 업무의 세션에만
+            let so = try XCTUnwrap(tx.node(label: "Resource", key: "https://stackoverflow.com/questions/28329382"))
+            XCTAssertEqual(try tx.edges(to: so.id, type: "TOUCHED").map(\.src), [tubeSession.id])
+        }
+    }
+
+    func testSameTaskResumedWithin30MinutesExtendsTheSession() throws {
         let db = try makeDB()
         let rows = Fixtures.frontendRows()
         try db.writer.write { conn in
             let tx = GraphTx(conn)
-            let applier = OntologyApplier()
+            let applier = AssignmentApplier()
             _ = try applier.apply(try Fixtures.patch(Fixtures.frontendPatchJSON), rows: rows, tx: tx, now: 2_000_000)
             let taskKey = try XCTUnwrap(tx.nodes(label: "Task").first).key
 
             var next = rows[0]
-            next.row = 1; next.start = rows[5].end + 100; next.end = next.start + 200; next.dwell = 200
+            next.row = 1; next.start = rows[5].end + 1_500; next.end = next.start + 200; next.dwell = 200      // 25분 뒤
             let followUp = try Fixtures.patch("""
-            {"segments":[{"from_row":1,"to_row":1,"task":{"match":"existing","id":"\(taskKey)","title":"무시됨","task_type":"코드작성"},
-              "summary":"카드 간격 조정","topics":["React"]}]}
+            {"tasks":[{"ref":"A","match":"existing","id":"\(taskKey)"}],"rows":[{"rows":"1","task":"A"}],
+             "work":[{"task":"A","summary":"카드 간격 조정","topics":["React"]}]}
             """)
-            let stats = try applier.apply(followUp, rows: [next], tx: tx, now: 2_000_100)
+            let (stats, _) = try applier.apply(followUp, rows: [next], tx: tx, now: 2_000_100)
             XCTAssertEqual(stats.sessions, 0)
             XCTAssertEqual(stats.sessionsExtended, 1)
             XCTAssertEqual(stats.tasksCreated, 0)
@@ -141,10 +185,10 @@ final class OntologyApplierTests: XCTestCase {
             XCTAssertEqual(task.title, "대시보드 카드 UI 구현")          // 기존 제목 유지
             XCTAssertEqual(task.props["active_seconds"], 5480)
 
-            // 간격이 5분 이상이면 새 세션
+            // 30분 넘게 비면 새 세션
             var later = next
-            later.start = next.end + 600; later.end = later.start + 60; later.dwell = 60
-            let third = try applier.apply(followUp, rows: [later], tx: tx, now: 2_000_200)
+            later.start = next.end + 2_000; later.end = later.start + 60; later.dwell = 60
+            let (third, _) = try applier.apply(followUp, rows: [later], tx: tx, now: 2_000_200)
             XCTAssertEqual(third.sessions, 1)
             XCTAssertEqual(try tx.nodes(label: "Session").count, 2)
         }
@@ -155,99 +199,70 @@ final class OntologyApplierTests: XCTestCase {
         let rows = Fixtures.frontendRows()
         try db.writer.write { conn in
             let tx = GraphTx(conn)
-            let applier = OntologyApplier()
+            let applier = AssignmentApplier()
             let first = try Fixtures.patch("""
-            {"segments":[{"from_row":1,"to_row":2,"task":{"match":"new","title":"논문 읽기","task_type":"없는종류"},"summary":"s","topics":[]}]}
+            {"tasks":[{"ref":"A","match":"new","title":"논문 읽기","task_type":"없는종류"}],"rows":[{"rows":"1-2","task":"A"}],"work":[]}
             """)
             _ = try applier.apply(first, rows: rows, tx: tx, now: 1)
             let task = try XCTUnwrap(tx.nodes(label: "Task").first)
             let typeEdge = try XCTUnwrap(tx.edges(from: task.id, type: "INSTANCE_OF").first)
             XCTAssertEqual(try tx.node(id: typeEdge.dst)?.key, "기타")
 
-            // id 없이 existing 이라고 하거나 같은 제목으로 new 라고 해도 같은 Task 를 쓴다.
+            // 없는 id 로 existing 이라고 하거나 같은 제목으로 new 라고 해도 같은 Task 를 쓴다.
             let second = try Fixtures.patch("""
-            {"segments":[{"from_row":3,"to_row":4,"task":{"match":"existing","id":"t_nope","title":" 논문  읽기 ","task_type":"문헌조사"},"summary":"s","topics":[]}]}
+            {"tasks":[{"ref":"X","match":"existing","id":"t_nope","title":" 논문  읽기 ","task_type":"문헌조사"}],"rows":[{"rows":"3-4","task":"X"}],"work":[]}
             """)
-            let stats = try applier.apply(second, rows: rows, tx: tx, now: 2)
+            let (stats, _) = try applier.apply(second, rows: rows, tx: tx, now: 2)
             XCTAssertEqual(stats.tasksCreated, 0)
             XCTAssertEqual(try tx.nodes(label: "Task").count, 1)
         }
     }
 
-    func testOutOfRangeAndOverlappingRowsAreHandled() throws {
+    func testRowsNotMentionedAreUncoveredAndOutOfRangeIsIgnored() throws {
         let db = try makeDB()
         let rows = Fixtures.frontendRows()
         try db.writer.write { conn in
             let tx = GraphTx(conn)
             let patch = try Fixtures.patch("""
-            {"segments":[
-              {"from_row":1,"to_row":3,"task":{"match":"new","title":"A","task_type":"코드작성"},"summary":"a","topics":[]},
-              {"from_row":3,"to_row":4,"task":{"match":"new","title":"B","task_type":"코드작성"},"summary":"b","topics":[]},
-              {"from_row":40,"to_row":50,"task":{"match":"new","title":"C","task_type":"코드작성"},"summary":"c","topics":[]}
-            ]}
+            {"tasks":[{"ref":"A","match":"new","title":"A","task_type":"코드작성"},{"ref":"C","match":"new","title":"C","task_type":"코드작성"}],
+             "rows":[{"rows":"1-3","task":"A"},{"rows":"40-50","task":"C"},{"rows":"4","task":"없는ref"}],"work":[]}
             """)
-            let stats = try OntologyApplier().apply(patch, rows: rows, tx: tx, now: 1)
-            XCTAssertEqual(stats.sessions, 2)               // C 는 범위 밖이라 무시
-            XCTAssertEqual(stats.uncoveredRows, 2)          // 5, 6 행은 어느 세그먼트에도 없음
-            XCTAssertEqual(try tx.nodes(label: "Task").map(\.title).sorted(), ["A", "B"])
-            // 3행은 A 가 먼저 가져갔으므로 B 세션에는 4행(Terminal)만 들어간다.
-            let b = try XCTUnwrap(tx.nodes(label: "Session").last)
-            XCTAssertEqual(b.props["active_seconds"], .number(Double(rows[3].dwell)))
-        }
-    }
-
-    func testTaskSwitchCreatesSwitchedToEdge() throws {
-        let db = try makeDB()
-        let rows = Fixtures.frontendRows()
-        try db.writer.write { conn in
-            let tx = GraphTx(conn)
-            let patch = try Fixtures.patch("""
-            {"segments":[
-              {"from_row":1,"to_row":4,"task":{"match":"new","title":"카드 UI","task_type":"코드작성"},"summary":"a","topics":[]},
-              {"from_row":5,"to_row":6,"task":{"match":"new","title":"유튜브 시청","task_type":"기타"},"summary":"b","topics":[],"switch_kind":"drift"}
-            ]}
-            """)
-            _ = try OntologyApplier().apply(patch, rows: rows, tx: tx, now: 1)
-            let sessions = try tx.nodes(label: "Session")
-            XCTAssertEqual(sessions.count, 2)
-            let edge = try XCTUnwrap(tx.edges(from: sessions[0].id, type: "SWITCHED_TO").first)
-            XCTAssertEqual(edge.dst, sessions[1].id)
-            XCTAssertEqual(edge.props["kind"], "drift")
+            let (stats, assignments) = try AssignmentApplier().apply(patch, rows: rows, tx: tx, now: 1)
+            XCTAssertEqual(stats.sessions, 1)
+            XCTAssertEqual(stats.uncoveredRows, 2, "5, 6 행은 언급되지 않음")
+            XCTAssertEqual(stats.unassignedRows, 1, "모르는 ref 는 배정 없음")
+            XCTAssertNil(assignments[3].taskId)
+            XCTAssertEqual(try tx.nodes(label: "Task").map(\.title).sorted(), ["A", "C"], "C 는 만들어지지만 행이 없어 세션이 없다")
         }
     }
 
     func testPatchDecodingIsLenient() throws {
         let patch = try Fixtures.patch("""
-        {"segments":[{"from_row":"1","to_row":2.0,"task":{"title":"T"},"topics":null,"problems":[{"row":"2","message":"에러"}]}]}
+        {"tasks":[{"ref":1,"id":"t_1"},{"ref":"B","title":"T"}],
+         "rows":[{"rows":"1","task":"1"},{"rows":2,"task":"B"},{"rows":"3~5","task":"null"},{"rows":"6-4","task":"B"}],
+         "work":[{"task":"B","summary":"s"}],"problems":[{"row":"2","message":"에러"}]}
         """)
-        XCTAssertEqual(patch.segments[0].fromRow, 1)
-        XCTAssertEqual(patch.segments[0].toRow, 2)
-        XCTAssertEqual(patch.segments[0].task.match, "new")
-        XCTAssertEqual(patch.segments[0].task.taskType, "기타")
-        XCTAssertEqual(patch.segments[0].topics, [])
-        XCTAssertEqual(patch.segments[0].problems?.first?.kind, "error")
-        XCTAssertNil(patch.segments[0].switchKind)
+        XCTAssertEqual(patch.tasks[0].match, "existing", "id 가 있으면 existing")
+        XCTAssertEqual(patch.tasks[1].match, "new")
+        let byRow = patch.byRow()
+        XCTAssertEqual(byRow[1]?.task, "1")
+        XCTAssertEqual(byRow[2]?.task, "B")
+        XCTAssertNil(byRow[3]?.task); XCTAssertNil(byRow[5]?.task)
+        XCTAssertNil(byRow[6], "뒤집힌 범위는 무시")
+        XCTAssertEqual(patch.work[0].topics, [])
+        XCTAssertEqual(patch.problems?.first?.kind, "error")
+        XCTAssertEqual(patch.problems?.first?.row, 2)
     }
 
-    func testLenientDecodeHandlesSmallModelQuirks() throws {
-        // qwen3.5:2b 가 실제로 돌려준 형태: segments 래퍼 없음 + 중첩 값이 JSON 문자열
+    func testLenientDecodeHandlesNestedJSONStrings() throws {
         let quirky = #"""
-        {"from_row":"1","to_row":"3","task":"{\"id\": \"\", \"match\": \"new\", \"title\": \"선형대수 3주차 학습\", \"task_type\": \"복습\"}",
-         "summary":"고유값 분해 학습","topics":"[\"선형대수학\", \"고유값\"]"}
+        {"tasks":"[{\"ref\": \"A\", \"match\": \"new\", \"title\": \"선형대수 3주차 학습\", \"task_type\": \"복습\"}]",
+         "rows":[{"rows":"1-3","task":"A"}],"work":"[{\"task\": \"A\", \"summary\": \"고유값 분해 학습\", \"topics\": [\"선형대수학\"]}]"}
         """#
-        let patch = try XCTUnwrap(OntologyPatch.decodeLenient(from: Data(quirky.utf8)))
-        XCTAssertEqual(patch.segments.count, 1)
-        XCTAssertEqual(patch.segments[0].fromRow, 1)
-        XCTAssertEqual(patch.segments[0].toRow, 3)
-        XCTAssertEqual(patch.segments[0].task.title, "선형대수 3주차 학습")
-        XCTAssertEqual(patch.segments[0].task.taskType, "복습")
-        XCTAssertEqual(patch.segments[0].topics, ["선형대수학", "고유값"])
-
-        let array = #"[{"from_row":1,"to_row":2,"task":{"title":"A"},"topics":[]}]"#
-        XCTAssertEqual(OntologyPatch.decodeLenient(from: Data(array.utf8))?.segments.count, 1)
-        let normal = try XCTUnwrap(OntologyPatch.decodeLenient(from: Data(Fixtures.frontendPatchJSON.utf8)))
-        XCTAssertEqual(normal, try Fixtures.patch(Fixtures.frontendPatchJSON))
-        XCTAssertNil(OntologyPatch.decodeLenient(from: Data("not json".utf8)))
+        let patch = try XCTUnwrap(AssignmentPatch.decodeLenient(from: Data(quirky.utf8)))
+        XCTAssertEqual(patch.tasks.first?.title, "선형대수 3주차 학습")
+        XCTAssertEqual(patch.work.first?.topics, ["선형대수학"])
+        XCTAssertNil(AssignmentPatch.decodeLenient(from: Data("not json".utf8)))
     }
 
     func testPromptContainsRowsTasksAndTypes() {
@@ -255,11 +270,102 @@ final class OntologyApplierTests: XCTestCase {
         let digest = TaskDigest(id: "t_ab12", title: "대시보드 카드 UI 구현", taskType: "코드작성", topics: ["React"],
                                 recentResources: ["TaskCard.tsx"], lastActive: 1)
         let prompt = OntologyPrompt.build(rows: rows, openTasks: [digest], now: 1_005_280)
-        XCTAssertTrue(prompt.system.contains("record_activity"))
+        XCTAssertTrue(prompt.system.contains("assign_rows"))
+        XCTAssertTrue(prompt.system.contains("never assigned to a task because neighbouring rows are"))
         XCTAssertTrue(prompt.user.contains("id=t_ab12"))
         XCTAssertTrue(prompt.user.contains("코드작성"))
         XCTAssertTrue(prompt.user.contains("https://ui.shadcn.com/docs/components/card"))
         XCTAssertTrue(prompt.user.contains("| 540s |"))
-        XCTAssertEqual(OntologySchema.tool.name, "record_activity")
+        XCTAssertEqual(AssignmentSchema.tool.name, "assign_rows")
+    }
+}
+
+final class ProjectBindingTests: XCTestCase {
+    private func row(_ n: Int, _ dwell: Int, uri: String, project: String, title: String) -> ActivityRow {
+        ActivityRow(row: n, start: Double(n * 1_000), end: Double(n * 1_000 + dwell), dwell: dwell, app: "Code", appBundle: "com.microsoft.VSCode",
+                    title: title, uri: uri, type: "CodeFile", projectKey: project, projectTitle: (project as NSString).lastPathComponent,
+                    snippet: nil, observationIds: [Int64(n)])
+    }
+
+    func testProjectBelongsToTheTaskThatWorkedInItMost() throws {
+        let db = try WGDatabase.inMemory()
+        let lab = "file:~/Desktop/5-1/기학기/실습환경", cap = "file:~/Desktop/5-1/ai 캡스톤디자인2/WorkGraph"
+        let rows = [row(1, 600, uri: lab + "/[0922]lab.ipynb", project: lab, title: "lab.ipynb"),
+                    row(2, 900, uri: cap + "/App.swift", project: cap, title: "App.swift"),
+                    row(3, 60, uri: lab + "/[0917]lab.ipynb", project: lab, title: "lab.ipynb")]      // LLM 이 캡스톤 행으로 판단한 실습 파일
+        let patch = try Fixtures.patch("""
+        {"tasks":[{"ref":"L","match":"new","title":"기학기 회귀분석 실습","task_type":"복습"},{"ref":"C","match":"new","title":"캡스톤 앱 구현","task_type":"코드작성"}],
+         "rows":[{"rows":"1","task":"L"},{"rows":"2-3","task":"C"}],
+         "work":[{"task":"L","summary":"실습","topics":[]},{"task":"C","summary":"구현","topics":[]}]}
+        """)
+        try db.writer.write { conn in
+            let tx = GraphTx(conn)
+            try TBox.seed(tx, at: 1)
+            _ = try AssignmentApplier().apply(patch, rows: rows, tx: tx, now: 10_000)
+            let links = try Row.fetchAll(conn, sql: """
+                SELECT t.title AS task, p.title AS project, e.weight AS seconds FROM edges e
+                JOIN nodes t ON t.id = e.src JOIN nodes p ON p.id = e.dst WHERE e.type = 'ON' ORDER BY t.title
+                """).map { ($0["task"] as String, $0["project"] as String, $0["seconds"] as Double) }
+            XCTAssertEqual(links.map { "\($0.0) → \($0.1) (\(Int($0.2)))" }, ["기학기 회귀분석 실습 → 실습환경 (600)", "캡스톤 앱 구현 → WorkGraph (900)"],
+                           "실습환경은 실습 업무의 것. 캡스톤이 60초 스친 것은 연결하지 않는다")
+            let capstone = try XCTUnwrap(tx.nodes(label: NodeLabel.task).first { $0.title == "캡스톤 앱 구현" })
+            XCTAssertEqual(capstone.props["project_seconds"]?.objectValue?[lab]?.doubleValue, 60, "시간은 남아 있어서 나중에 뒤집힐 수 있다")
+        }
+    }
+
+    func testResourceFalseKeepsAppTimeButNoResourceOrProject() throws {
+        let db = try WGDatabase.inMemory()
+        let lab = "file:~/Desktop/5-1/기학기/실습환경", cap = "file:~/Desktop/5-1/ai 캡스톤디자인2/WorkGraph"
+        let rows = [row(1, 900, uri: cap + "/App.swift", project: cap, title: "App.swift"),
+                    row(2, 60, uri: lab + "/[0917]lab.ipynb", project: lab, title: "lab.ipynb — 5-1")]
+        let patch = try Fixtures.patch("""
+        {"tasks":[{"ref":"C","match":"new","title":"캡스톤 앱 구현","task_type":"코드작성"}],
+         "rows":[{"rows":"1","task":"C"},{"rows":"2","task":"C","resource":false}],"work":[{"task":"C","summary":"구현","topics":[]}]}
+        """)
+        try db.writer.write { conn in
+            let tx = GraphTx(conn)
+            try TBox.seed(tx, at: 1)
+            let (_, assignments) = try AssignmentApplier().apply(patch, rows: rows, tx: tx, now: 10_000)
+            XCTAssertFalse(assignments[1].resource)
+            XCTAssertNil(try tx.node(label: NodeLabel.resource, key: lab + "/[0917]lab.ipynb"), "보이기만 한 파일은 자료로 남지 않는다")
+            XCTAssertNil(try tx.node(label: NodeLabel.project, key: lab))
+            let used = try Row.fetchAll(conn, sql: "SELECT weight FROM edges WHERE type = 'USED'").map { $0["weight"] as Double }
+            XCTAssertEqual(used, [960], "앱 시간은 두 행 모두 센다")
+        }
+    }
+}
+
+final class TaskMergerTests: XCTestCase {
+    func testMergingMovesRowsSessionsTopicsAndTimeThenDeletesTheDuplicate() async throws {
+        let db = try WGDatabase.inMemory()
+        try await db.writer.write { try TBox.seed(GraphTx($0), at: 0) }
+        let rows = Fixtures.frontendRows()
+        // 같은 목표를 두 제목으로: A(1~3행) 와 B(4~6행)
+        let patch = try Fixtures.patch("""
+        {"tasks":[{"ref":"A","match":"new","title":"대시보드 카드 UI 구현","task_type":"코드작성"},{"ref":"B","match":"new","title":"대시보드 카드 컴포넌트 작업","task_type":"코드작성"}],
+         "rows":[{"rows":"1-3","task":"A"},{"rows":"4-6","task":"B"}],
+         "work":[{"task":"A","summary":"카드 구현","topics":["React"]},{"task":"B","summary":"카드 마무리","topics":["shadcn/ui"]}]}
+        """)
+        let (keepKey, victimKey): (String, String) = try await db.writer.write { conn in
+            let tx = GraphTx(conn)
+            let (_, assignments) = try AssignmentApplier().apply(patch, rows: rows, tx: tx, now: 2_000_000)
+            for item in assignments { try EventStore.assign(conn, observationIds: item.row.observationIds, taskId: item.taskId, relevant: item.resource) }
+            let tasks = try tx.nodes(label: NodeLabel.task)
+            return (tasks.first { $0.title == "대시보드 카드 UI 구현" }!.key, tasks.first { $0.title == "대시보드 카드 컴포넌트 작업" }!.key)
+        }
+        let llm = StubLLM([.success(#"{"groups":[{"keep":"\#(keepKey)","merge":["\#(victimKey)"]}]}"#)])
+        let outcome = try await TaskMerger.run(db: db, llm: llm, since: 0, now: 2_000_500)
+        XCTAssertEqual(outcome.merged, 1)
+        XCTAssertTrue(llm.lastUser.contains("대시보드 카드 컴포넌트 작업"))
+        try await db.writer.read { conn in
+            let tx = GraphTx(conn)
+            let tasks = try tx.nodes(label: NodeLabel.task)
+            XCTAssertEqual(tasks.map(\.title), ["대시보드 카드 UI 구현"])
+            let keep = tasks[0]
+            XCTAssertEqual(keep.props["active_seconds"], 5280, "시간은 합산")
+            XCTAssertEqual(try tx.edges(to: keep.id, type: "PART_OF").count, 2, "두 세션 모두 남은 업무의 것")
+            XCTAssertEqual(Set(try tx.edges(from: keep.id, type: "ABOUT").compactMap { try tx.node(id: $0.dst)?.title }), ["React", "shadcn/ui"])
+            XCTAssertEqual(try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM edges e LEFT JOIN nodes n ON n.id = e.src OR n.id = e.dst WHERE n.id IS NULL"), 0, "끊긴 엣지 없음")
+        }
     }
 }

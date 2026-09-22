@@ -328,6 +328,9 @@
     const open = $('openKey');
     open.hidden = !target;
     open.onclick = () => { if (!post({ type: 'open', uri: target }) && /^https?:/.test(target)) window.open(target, '_blank', 'noopener'); };
+    const resume = $('resumeKey');                       // 업무·세션: 그때 쓰던 파일·페이지·앱을 다시 연다
+    resume.hidden = !(node.label === 'Task' || node.label === 'Session');
+    resume.onclick = () => post({ type: 'resume', label: node.label, key: node.key });
 
     // 속성
     const props = $('detailProps');
@@ -378,7 +381,7 @@
         const d = document.createElement('span'); d.className = 'dot'; d.style.background = colorOf(other);
         const name = document.createElement('span'); name.className = 'name'; name.textContent = other.title || other.key;
         const meta = document.createElement('span'); meta.className = 'meta';
-        if (link.type === 'TOUCHED' || link.type === 'USED') meta.textContent = duration(link.weight);
+        if (link.type === 'TOUCHED' || link.type === 'USED' || (link.type === 'ON' && link.weight > 0)) meta.textContent = duration(link.weight);
         else if (link.type === 'SWITCHED_TO') meta.textContent = { drift: '딴짓', blocked: '막혀서', planned: '계획대로', unknown: '' }[(link.props || {}).kind || 'unknown'];
         button.append(d, name, meta);
         button.addEventListener('click', () => {

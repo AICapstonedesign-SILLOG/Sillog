@@ -65,6 +65,32 @@ public struct EventStore: Sendable {
         try conn.execute(sql: "UPDATE observations SET batch_id = ? WHERE id IN (\(list))", arguments: [batchId])
     }
 
+    /// 행의 업무 판단을 기록한다 (LLM 판단의 원본). 세션·그래프는 여기서 다시 만들 수 있다
+    public static func assign(_ conn: Database, observationIds: [Int64], taskId: Int64?, relevant: Bool) throws {
+        guard !observationIds.isEmpty else { return }
+        let list = observationIds.map(String.init).joined(separator: ",")
+        try conn.execute(sql: "UPDATE observations SET task_id = ?, resource_relevant = ? WHERE id IN (\(list))", arguments: [taskId, relevant])
+    }
+
+    public static func assignChats(_ conn: Database, ids: [Int64], taskId: Int64?) throws {
+        guard !ids.isEmpty else { return }
+        let list = ids.map(String.init).joined(separator: ",")
+        try conn.execute(sql: "UPDATE chat_messages SET task_id = ? WHERE id IN (\(list))", arguments: [taskId])
+    }
+
+    /// 판단이 기록된 행 전부 (시간순). 그래프를 LLM 없이 다시 만들 때 쓴다
+    public func assignedObservations() throws -> [Observation] {
+        try db.writer.read { conn in
+            try Observation.fetchAll(conn, sql: "SELECT * FROM observations WHERE batch_id IS NOT NULL ORDER BY ts, id")
+        }
+    }
+
+    public func assignedChatMessages() throws -> [ChatMessage] {
+        try db.writer.read { conn in
+            try ChatMessage.fetchAll(conn, sql: "SELECT * FROM chat_messages WHERE batch_id IS NOT NULL ORDER BY ts, id")
+        }
+    }
+
     // MARK: AI 대화 기록
 
     /// 같은 (도구, 세션, 시각) 메시지는 한 번만 저장한다. 새로 들어간 개수를 돌려준다.
@@ -144,11 +170,14 @@ public struct EventStore: Sendable {
 
     /// [from, to] 구간과 겹치는 유휴 구간.
     public func idleSpans(from: Double, to: Double) throws -> [IdleSpan] {
-        try db.writer.read { conn in
-            try IdleSpan.fetchAll(conn, sql: """
-                SELECT * FROM idle_spans WHERE start_ts <= ? AND COALESCE(end_ts, ?) >= ? ORDER BY start_ts
-                """, arguments: [to, to, from])
-        }
+        try db.writer.read { conn in try Self.idleSpans(conn, from: from, to: to) }
+    }
+
+    /// 이미 열린 연결 안에서 (트랜잭션 중에) 쓰는 판
+    public static func idleSpans(_ conn: Database, from: Double, to: Double) throws -> [IdleSpan] {
+        try IdleSpan.fetchAll(conn, sql: """
+            SELECT * FROM idle_spans WHERE start_ts <= ? AND COALESCE(end_ts, ?) >= ? ORDER BY start_ts
+            """, arguments: [to, to, from])
     }
 
     public func recent(limit: Int) throws -> [Observation] {

@@ -53,6 +53,52 @@ public struct GraphTx {
         return id
     }
 
+    public func deleteEdge(id: Int64) throws {
+        try db.execute(sql: "DELETE FROM edges WHERE id = ?", arguments: [id])
+    }
+
+    /// 업무의 프로젝트별 작업 시간(초)에 더한다. 업무 노드의 props.project_seconds = {"file:~/...": 초}
+    public func addProjectSeconds(taskId: Int64, projectKey: String, seconds: Double, at: Double) throws {
+        guard seconds > 0, let task = try node(id: taskId) else { return }
+        var tally = task.props["project_seconds"]?.objectValue ?? [:]
+        tally[projectKey] = .number((tally[projectKey]?.doubleValue ?? 0) + seconds)
+        try setProps(nodeId: taskId, ["project_seconds": .object(tally)], at: at)
+    }
+
+    /// 업무 ↔ 프로젝트를 1:1 로 맞춘다. 근거는 업무별 프로젝트 작업 시간(project_seconds).
+    /// 시간이 긴 (업무, 프로젝트) 쌍부터 차례로 짝지어, 이미 짝이 있는 업무나 프로젝트는 건너뛴다.
+    /// 한 프로젝트는 한 업무의 것이고, 한 업무는 한 프로젝트만 갖는다. 나머지 ON 엣지는 지운다.
+    @discardableResult
+    public func rebindProjects(at: Double) throws -> [(taskId: Int64, projectId: Int64, seconds: Double)] {
+        var pairs: [(taskId: Int64, projectKey: String, seconds: Double)] = []
+        for task in try nodes(label: NodeLabel.task) {
+            for (key, value) in task.props["project_seconds"]?.objectValue ?? [:] {
+                if let seconds = value.doubleValue, seconds > 0 { pairs.append((task.id, key, seconds)) }
+            }
+        }
+        pairs.sort { ($0.seconds, -$0.taskId) > ($1.seconds, -$1.taskId) }
+        var takenTasks = Set<Int64>(), takenProjects = Set<String>()
+        var chosen: [(taskId: Int64, projectId: Int64, seconds: Double)] = []
+        for pair in pairs where !takenTasks.contains(pair.taskId) && !takenProjects.contains(pair.projectKey) {
+            guard let project = try node(label: NodeLabel.project, key: pair.projectKey) else { continue }
+            takenTasks.insert(pair.taskId); takenProjects.insert(pair.projectKey)
+            chosen.append((pair.taskId, project.id, pair.seconds))
+        }
+        let wanted = Set(chosen.map { "\($0.taskId)>\($0.projectId)" })
+        for edge in try Row.fetchAll(db, sql: "SELECT * FROM edges WHERE type = ?", arguments: [EdgeType.on]).map(Self.edge)
+        where !wanted.contains("\(edge.src)>\(edge.dst)") {
+            try deleteEdge(id: edge.id)
+        }
+        for item in chosen {
+            let existing = try edges(from: item.taskId, type: EdgeType.on).first { $0.dst == item.projectId }
+            try db.execute(sql: existing == nil
+                ? "INSERT INTO edges(src, dst, type, props, weight, hits, first_at, last_at) VALUES (?, ?, 'ON', '{}', ?, 1, ?, ?)"
+                : "UPDATE edges SET weight = ?, last_at = MAX(last_at, ?) WHERE src = ? AND dst = ? AND type = 'ON'",
+                arguments: existing == nil ? [item.taskId, item.projectId, item.seconds, at, at] : [item.seconds, at, item.taskId, item.projectId])
+        }
+        return chosen
+    }
+
     public func setProps(nodeId: Int64, _ props: [String: JSONValue], at: Double) throws {
         try db.execute(sql: "UPDATE nodes SET props = json_patch(props, ?), updated_at = MAX(updated_at, ?) WHERE id = ?",
                        arguments: [JSONValue.encodeObject(props), at, nodeId])
@@ -138,13 +184,15 @@ public struct GraphTx {
     }
 
     /// LLM에 후보로 줄 "열려 있는 업무". 최근 활동 순.
-    public func openTasks(limit: Int) throws -> [TaskDigest] {
+    /// LLM 에 보여 줄 업무 (제목·주제·최근에 한 일 문장·자료). since 를 주면 그 뒤에 활동한 것만
+    public func openTasks(limit: Int, since: Double? = nil) throws -> [TaskDigest] {
         let rows = try Row.fetchAll(db, sql: """
             SELECT * FROM nodes
             WHERE label = 'Task' AND COALESCE(json_extract(props, '$.status'), 'active') <> 'done'
+              AND COALESCE(json_extract(props, '$.last_active'), updated_at) >= ?
             ORDER BY COALESCE(json_extract(props, '$.last_active'), updated_at) DESC
             LIMIT ?
-            """, arguments: [limit])
+            """, arguments: [since ?? 0, limit])
         return try rows.map(Self.node).map { task in
             let taskType = try String.fetchOne(db, sql: """
                 SELECT n.title FROM edges e JOIN nodes n ON n.id = e.dst
@@ -175,9 +223,13 @@ public struct GraphTx {
                 WHERE p.dst = ? AND p.type = 'PART_OF'
                 GROUP BY a.id ORDER BY SUM(u.weight) DESC LIMIT 3
                 """, arguments: [task.id])
+            let summaries = try String.fetchAll(db, sql: """
+                SELECT COALESCE(NULLIF(json_extract(s.props, '$.summary'), ''), s.title) FROM edges p JOIN nodes s ON s.id = p.src
+                WHERE p.dst = ? AND p.type = 'PART_OF' ORDER BY json_extract(s.props, '$.start') DESC LIMIT 3
+                """, arguments: [task.id])
             return TaskDigest(id: task.key, title: task.title, taskType: taskType, topics: topics,
                               recentResources: resources, lastActive: task.props["last_active"]?.doubleValue ?? task.updatedAt,
-                              resourceKeys: resourceKeys, apps: apps)
+                              resourceKeys: resourceKeys, apps: apps, recentSummaries: summaries)
         }
     }
 
@@ -205,7 +257,7 @@ public struct GraphTx {
                   props: JSONValue.decodeObject(row["props"] as String?), createdAt: row["created_at"], updatedAt: row["updated_at"])
     }
 
-    static func edge(_ row: Row) -> GraphEdge {
+    public static func edge(_ row: Row) -> GraphEdge {
         GraphEdge(id: row["id"], src: row["src"], dst: row["dst"], type: row["type"],
                   props: JSONValue.decodeObject(row["props"] as String?), weight: row["weight"], hits: row["hits"],
                   firstAt: row["first_at"], lastAt: row["last_at"])

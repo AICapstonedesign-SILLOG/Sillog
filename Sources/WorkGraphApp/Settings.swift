@@ -20,6 +20,9 @@ struct AppSettings: Codable, Equatable {
     /// 메뉴바 아이콘은 노치나 다른 아이콘에 가려질 수 있어서 Dock 아이콘을 기본으로 보여준다.
     var showDockIcon = true
     var excludedBundles: [String] = PrivacyFilter.defaultExcludedBundles.sorted()
+    var suggestFolders = true
+    /// 정리 위치 후보를 찾을 폴더들 (~ 표기 허용)
+    var folderRoots: [String] = ["~/Desktop", "~/Documents"]
 
     private static let key = "workgraph.settings.v1"
 
@@ -42,6 +45,8 @@ struct AppSettings: Codable, Equatable {
         retentionDays = try c.decodeIfPresent(Int.self, forKey: .retentionDays) ?? d.retentionDays
         showDockIcon = try c.decodeIfPresent(Bool.self, forKey: .showDockIcon) ?? d.showDockIcon
         excludedBundles = try c.decodeIfPresent([String].self, forKey: .excludedBundles) ?? d.excludedBundles
+        suggestFolders = try c.decodeIfPresent(Bool.self, forKey: .suggestFolders) ?? d.suggestFolders
+        folderRoots = try c.decodeIfPresent([String].self, forKey: .folderRoots) ?? d.folderRoots
     }
 
     static func load() -> AppSettings {

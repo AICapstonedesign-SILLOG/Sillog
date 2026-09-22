@@ -54,6 +54,9 @@ struct GraphWebView: NSViewRepresentable {
             case "ready":
                 ready = true
                 push(version: MainActor.assumeIsolated { state.graphVersion })
+            case "resume":
+                guard let label = body["label"] as? String, let key = body["key"] as? String else { return }
+                Task { @MainActor in self.state.prepareResume(label: label, key: key) }
             case "runBatch":
                 Task { @MainActor in await self.state.runBatch(force: true) }
             case "open":

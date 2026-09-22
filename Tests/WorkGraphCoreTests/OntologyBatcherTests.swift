@@ -34,8 +34,8 @@ final class StubLLM: LLMClient, @unchecked Sendable {
 
 final class OntologyBatcherTests: XCTestCase {
     private let patch = """
-    {"segments":[{"from_row":1,"to_row":2,"task":{"match":"new","title":"대시보드 카드 UI 구현","task_type":"코드작성"},
-      "summary":"카드 구현","topics":["React"]}]}
+    {"tasks":[{"ref":"A","match":"new","title":"대시보드 카드 UI 구현","task_type":"코드작성"}],"rows":[{"rows":"1-2","task":"A"}],
+     "work":[{"task":"A","summary":"카드 구현","topics":["React"]}]}
     """
 
     private func seed(_ db: WGDatabase) throws -> [Int64] {
@@ -88,7 +88,7 @@ final class OntologyBatcherTests: XCTestCase {
         XCTAssertEqual(batch.systemPrompt, OntologyPrompt.system)                       // LLM 이 받은 것이 그대로 남는다
         XCTAssertTrue(batch.userPrompt?.contains("ROWS (row | time | dwell") ?? false)
         XCTAssertTrue(batch.llmPatch?.contains("\"title\" : \"대시보드 카드 UI 구현\"") ?? false)   // 받은 것
-        XCTAssertTrue(batch.appliedPatch?.contains("\"from_row\" : 1") ?? false)                  // 반영한 것
+        XCTAssertTrue(batch.appliedPatch?.contains("1 | 대시보드 카드 UI 구현") ?? false)              // 반영한 것 (행 | 업무)
         XCTAssertEqual(batch.model, "stub-model")
         XCTAssertEqual(batch.promptTokens, 100)
         XCTAssertEqual(batch.rowCount, 2)
@@ -140,10 +140,10 @@ final class OntologyBatcherTests: XCTestCase {
         let db = try WGDatabase.inMemory()
         _ = try seed(db)
         let clock = TestClock(450)
-        let llm = StubLLM(Array(repeating: .success(#"{"segments":[]}"#), count: 5))
+        let llm = StubLLM(Array(repeating: .success(#"{"tasks":[],"rows":[],"work":[]}"#), count: 5))
         let batcher = makeBatcher(db, llm, clock)
         for _ in 0..<5 {
-            guard case .failed = await batcher.runIfDue(force: false) else { return XCTFail("빈 세그먼트는 실패") }
+            guard case .failed = await batcher.runIfDue(force: false) else { return XCTFail("빈 배정은 실패") }
             clock.now += 4000
         }
         XCTAssertEqual(llm.calls, 5)
