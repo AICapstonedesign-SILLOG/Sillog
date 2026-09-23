@@ -342,6 +342,23 @@ final class ProjectBindingTests: XCTestCase {
 }
 
 final class TaskMergerTests: XCTestCase {
+    func testMergingThreeTasksAccumulatesAllValues() throws {
+        let db = try WGDatabase.inMemory()
+        try db.writer.write { conn in
+            let tx = GraphTx(conn)
+            for (key, seconds, last) in [("A", 10.0, 100.0), ("B", 20.0, 300.0), ("C", 30.0, 200.0)] {
+                _ = try tx.upsertNode(label: "Task", key: key, subtype: nil, title: key,
+                                     props: ["active_seconds": .number(seconds), "last_active": .number(last),
+                                             "project_seconds": .object(["p": .number(seconds)])], at: 0)
+            }
+            XCTAssertEqual(try TaskMerger.merge(.init(keep: "A", merge: ["B", "C"], title: nil), conn: conn, now: 400), 2)
+            let task = try XCTUnwrap(tx.node(label: "Task", key: "A"))
+            XCTAssertEqual(task.props["active_seconds"], .number(60))
+            XCTAssertEqual(task.props["last_active"], .number(300))
+            XCTAssertEqual(task.props["project_seconds"]?.objectValue?["p"], .number(60))
+        }
+    }
+
     func testMergingMovesRowsSessionsTopicsAndTimeThenDeletesTheDuplicate() async throws {
         let db = try WGDatabase.inMemory()
         try await db.writer.write { try TBox.seed(GraphTx($0), at: 0) }
