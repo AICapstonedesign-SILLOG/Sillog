@@ -160,7 +160,7 @@ public actor CollectorCoordinator {
         }
 
         if !snapshot.sameContext(as: last) {
-            let titleOnly = last.map { $0.appBundle == snapshot.appBundle && $0.url == snapshot.url && $0.docPath == snapshot.docPath } ?? false
+            let titleOnly = last.map { $0.pid == snapshot.pid && $0.windowFrame == snapshot.windowFrame && $0.appBundle == snapshot.appBundle && $0.url == snapshot.url && $0.docPath == snapshot.docPath } ?? false
             if titleOnly, now - lastObservationAt < settings.titleChangeMinInterval { return }
             let trigger = last?.appBundle == snapshot.appBundle ? "window_change" : "app_activate"
             guard let id = insert(snapshot, trigger: trigger, at: now) else { return }
@@ -200,9 +200,10 @@ public actor CollectorCoordinator {
 
     /// 화면이 자리 잡은 뒤: 접근성 텍스트 → 부족하면 OCR → 스크린샷 저장.
     private func settle(observationId: Int64, snapshot: ContextSnapshot) async {
-        guard snapshot.sameContext(as: last) else { return }
+        guard isCurrent(snapshot) else { return }
         var text = ""
         if settings.captureText, let read = sampler.readText(pid: snapshot.pid) { text = read.text }
+        guard isCurrent(snapshot) else { return }
         let needOCR = settings.captureText && text.count < settings.ocrMinChars
         // 화면이 바뀌었으면 한 장은 꼭 남긴다 (화면 기억 카드의 대표 후보)
         let image = await captureScreenshot(observationId: observationId, snapshot: snapshot, needImageForOCR: needOCR, contextChanged: true)
@@ -215,8 +216,17 @@ public actor CollectorCoordinator {
                 text = text.isEmpty ? recognized : text + "\n" + recognized
             }
         }
-        guard !text.isEmpty, let textId = try? store.upsertText(text, source: source, at: Date().timeIntervalSince1970) else { return }
+        guard isCurrent(snapshot), settings.captureText, !text.isEmpty,
+              let textId = try? store.upsertText(text, source: source, at: Date().timeIntervalSince1970) else { return }
         try? store.attach(observationId: observationId, textId: textId, screenshotPath: nil)
+    }
+
+    private func isCurrent(_ snapshot: ContextSnapshot) -> Bool {
+        let privacy = PrivacyFilter(excludedBundles: settings.excludedBundles)
+        return !Task.isCancelled && status.running && !status.paused && !locked && !isIdle
+            && !privacy.isExcluded(bundle: snapshot.appBundle) && !privacy.isPrivateWindow(title: snapshot.windowTitle)
+            && snapshot.sameContext(as: last)
+            && snapshot.sameContext(as: sampler.sample(enableWebAccessibility: settings.enableWebAccessibility))
     }
 
     /// 화면이 거의 안 바뀌었으면 저장하지 않는다. OCR 용으로만 필요한 경우 이미지는 돌려주되 파일은 남기지 않을 수 있다.
@@ -226,13 +236,13 @@ public actor CollectorCoordinator {
         // 화면이 바뀐 직후는 간격과 상관없이 찍는다 (2초 안의 연속 전환만 거른다). 같은 화면에 머무는 동안은 간격을 지킨다
         let minInterval = contextChanged ? 2.0 : settings.screenshotMinInterval
         let wantsFile = settings.captureScreenshots && now - lastScreenshotAt >= minInterval
-        guard wantsFile || needImageForOCR, CGPreflightScreenCaptureAccess() else { return nil }
+        guard wantsFile || needImageForOCR, CGPreflightScreenCaptureAccess(), isCurrent(snapshot) else { return nil }
         let privacy = PrivacyFilter(excludedBundles: settings.excludedBundles)
-        guard let image = await capturer.capture(excluding: privacy) else { return nil }
-        guard snapshot.sameContext(as: last) else { return nil }          // 뜨는 사이 다른 창으로 갔으면 버린다
+        guard let image = await capturer.capture(snapshot: snapshot, excluding: privacy) else { return nil }
+        guard isCurrent(snapshot) else { return nil }
 
         let hash = ScreenCapturer.differenceHash(image)
-        if wantsFile {
+        if wantsFile && settings.captureScreenshots {
             // 같은 화면에 머무는 동안은 내용이 바뀐 것(스크롤 등)만 저장한다. 화면이 바뀐 직후는 비슷해 보여도 저장한다
             if contextChanged || (lastScreenshotHash.map({ !ScreenCapturer.isSimilar($0, hash) }) ?? true) {
                 let date = Date(timeIntervalSince1970: now)
