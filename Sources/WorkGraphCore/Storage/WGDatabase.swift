@@ -234,6 +234,61 @@ public final class WGDatabase: @unchecked Sendable {
               FROM observations o LEFT JOIN nodes t ON t.id = o.task_id;
             """)
         }
+        migrator.registerMigration("v8-off-task") { db in
+            // 어떤 목표에도 기여하지 않는 행 (집중 이탈). 업무 없이 시간만 남긴다
+            try db.execute(sql: "ALTER TABLE observations ADD COLUMN off_task INTEGER NOT NULL DEFAULT 0")
+        }
+        migrator.registerMigration("v9-task-reason") { db in
+            // LLM 이 행마다 적은 판정 이유 ("왜 이 업무인가")
+            try db.execute(sql: """
+            ALTER TABLE observations ADD COLUMN task_reason TEXT;
+            DROP VIEW v_row_tasks;
+            CREATE VIEW v_row_tasks AS
+              SELECT o.id, datetime(o.ts, 'unixepoch', 'localtime') AS time, o.app_name, o.window_title, o.url, o.doc_path,
+                     CASE WHEN o.off_task = 1 THEN '(이탈)' ELSE t.title END AS task, o.task_reason AS reason, o.resource_relevant, o.batch_id
+              FROM observations o LEFT JOIN nodes t ON t.id = o.task_id;
+            """)
+        }
+        migrator.registerMigration("v10-screen-cards") { db in
+            // 화면 기억 카드: 대표 화면을 멀티모달로 읽은 "무엇을 했나 + 화면 내용". 검색은 FTS5 trigram (한국어 부분 문자열)
+            try db.execute(sql: """
+            ALTER TABLE observations ADD COLUMN screen_hash INTEGER;
+            ALTER TABLE observations ADD COLUMN card_id INTEGER;
+            CREATE TABLE screen_cards (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              ts_start REAL NOT NULL,
+              ts_end REAL NOT NULL,
+              screen_hash INTEGER NOT NULL,
+              screenshot_path TEXT,
+              app_bundle TEXT NOT NULL,
+              app_name TEXT NOT NULL,
+              window_title TEXT,
+              uri TEXT,
+              activity TEXT NOT NULL,
+              content TEXT NOT NULL,
+              kind TEXT NOT NULL,
+              entities TEXT NOT NULL DEFAULT '{}',
+              batch_id INTEGER,
+              created_at REAL NOT NULL
+            );
+            CREATE INDEX idx_screen_cards_ts ON screen_cards(ts_start);
+            CREATE INDEX idx_observations_card ON observations(card_id);
+            CREATE VIRTUAL TABLE screen_cards_fts USING fts5(activity, content, entities, window_title, uri, app_name, content='screen_cards', content_rowid='id', tokenize='trigram');
+            CREATE TRIGGER screen_cards_ai AFTER INSERT ON screen_cards BEGIN
+              INSERT INTO screen_cards_fts(rowid, activity, content, entities, window_title, uri, app_name) VALUES (new.id, new.activity, new.content, new.entities, new.window_title, new.uri, new.app_name);
+            END;
+            CREATE TRIGGER screen_cards_ad AFTER DELETE ON screen_cards BEGIN
+              INSERT INTO screen_cards_fts(screen_cards_fts, rowid, activity, content, entities, window_title, uri, app_name) VALUES ('delete', old.id, old.activity, old.content, old.entities, old.window_title, old.uri, old.app_name);
+            END;
+            CREATE TRIGGER screen_cards_au AFTER UPDATE ON screen_cards BEGIN
+              INSERT INTO screen_cards_fts(screen_cards_fts, rowid, activity, content, entities, window_title, uri, app_name) VALUES ('delete', old.id, old.activity, old.content, old.entities, old.window_title, old.uri, old.app_name);
+              INSERT INTO screen_cards_fts(rowid, activity, content, entities, window_title, uri, app_name) VALUES (new.id, new.activity, new.content, new.entities, new.window_title, new.uri, new.app_name);
+            END;
+            CREATE VIEW v_cards AS
+              SELECT id, datetime(ts_start, 'unixepoch', 'localtime') AS start, datetime(ts_end, 'unixepoch', 'localtime') AS end,
+                     app_name, window_title, activity, content, kind, entities, uri FROM screen_cards;
+            """)
+        }
         return migrator
     }
 }

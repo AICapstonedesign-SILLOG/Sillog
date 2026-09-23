@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import WebKit
+import WorkGraphCore
 
 /// 옵시디언식 그래프 뷰. 화면은 번들된 HTML/JS(force-graph)이고, Swift 는 데이터만 넣어준다.
 struct GraphWebView: NSViewRepresentable {
@@ -54,6 +55,8 @@ struct GraphWebView: NSViewRepresentable {
             case "ready":
                 ready = true
                 push(version: MainActor.assumeIsolated { state.graphVersion })
+            case "log":
+                if let message = body["message"] as? String { AppLog.write(message) }
             case "resume":
                 guard let label = body["label"] as? String, let key = body["key"] as? String else { return }
                 Task { @MainActor in self.state.prepareResume(label: label, key: key) }

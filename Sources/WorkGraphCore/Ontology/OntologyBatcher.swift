@@ -15,6 +15,10 @@ public struct BatchConfig: Sendable {
     public var maxBackoff: Double = 1800
     /// 같은 구간에서 "쓸 수 없는 답"이 이만큼 반복되면 그 구간을 건너뛴다.
     public var maxContentFailures: Int = 5
+    /// 화면 기억 카드: 대표 화면을 멀티모달 LLM 에 보내 카드를 만들고 업무 배정의 근거로 쓴다 (LLM 이 이미지를 받을 때만)
+    public var screenCards: Bool = true
+    /// 같은 화면의 카드를 다시 쓰는 기간 (초)
+    public var cardReuseWindow: Double = 24 * 3600
 
     public init() {}
 }
@@ -47,6 +51,8 @@ public actor OntologyBatcher {
         self.db = db; self.store = EventStore(db); self.llm = llm; self.config = config
         self.home = home; self.fileExists = fileExists; self.clock = clock
     }
+
+    public func setScreenCards(_ enabled: Bool) { config.screenCards = enabled }
 
     public func setLLM(_ client: any LLMClient) {
         llm = client
@@ -95,7 +101,12 @@ public actor OntologyBatcher {
 
         // 최근 7일의 업무 전부 (최대 40개): 행이 어느 목표에 기여하는지 보려면 목표 목록이 다 있어야 한다
         let openTasks = try await db.writer.read { try GraphTx($0).openTasks(limit: 40, since: now - 7 * 86_400) }
-        let prompt = OntologyPrompt.build(rows: rows, openTasks: openTasks, now: now)
+        // 화면 기억 카드 (실패해도 배정은 카드 없이 계속한다)
+        var cards: [Int: [ScreenCard]] = [:]
+        if config.screenCards, let vision = llm as? any VisionLLMClient {
+            cards = await makeCards(rows: rows, window: window, llm: vision, now: now)
+        }
+        let prompt = OntologyPrompt.build(rows: rows, openTasks: openTasks, now: now, cards: cards)
         let model = llm.modelName
 
         let result: LLMResult
@@ -139,7 +150,7 @@ public actor OntologyBatcher {
             try EventStore.mark(conn, observationIds: includedIds, batchId: batchId)
             try EventStore.markChats(conn, ids: rows.flatMap(\.chatMessageIds), batchId: batchId)
             for item in assignments {
-                try EventStore.assign(conn, observationIds: item.row.observationIds, taskId: item.taskId, relevant: item.resource)
+                try EventStore.assign(conn, observationIds: item.row.observationIds, taskId: item.taskId, relevant: item.resource, offTask: item.offTask, reason: item.reason)
                 try EventStore.assignChats(conn, ids: item.row.chatMessageIds, taskId: item.taskId)
             }
             return stats
@@ -154,6 +165,78 @@ public actor OntologyBatcher {
         return .ok(stats)
     }
 
+    /// 대표 화면을 골라 카드를 만들거나(같은 화면이면 재사용) 행에 연결한다. 행 번호 → 카드
+    private func makeCards(rows: [ActivityRow], window: [Observation], llm: any VisionLLMClient, now: Double) async -> [Int: [ScreenCard]] {
+        var shots: [Int64: KeyframeSelector.Shot] = [:]
+        for observation in window {
+            guard let id = observation.id, let path = observation.screenshotPath, let hash = observation.screenHash, fileExists(path) else { continue }
+            shots[id] = KeyframeSelector.Shot(observationId: id, ts: observation.ts, path: path, hash: UInt64(bitPattern: hash))
+        }
+        let groups = KeyframeSelector.select(rows: rows, shots: shots)
+        guard !groups.isEmpty else { return [:] }
+
+        // 같은 화면의 최근 카드가 있으면 재사용
+        let reuseWindow = config.cardReuseWindow
+        let split: (reused: [(group: KeyframeSelector.Group, card: ScreenCard)], fresh: [KeyframeSelector.Group])
+        do {
+            split = try await db.writer.read { conn in
+                var reused: [(group: KeyframeSelector.Group, card: ScreenCard)] = [], fresh: [KeyframeSelector.Group] = []
+                for group in groups {
+                    let candidates = try ScreenCardStore.recentCards(conn, appBundle: group.appBundle, title: group.title, uri: group.uri, since: group.start - reuseWindow)
+                    if let match = candidates.first(where: { KeyframeSelector.distance(UInt64(bitPattern: $0.screenHash), group.representative.hash) <= KeyframeSelector.sameScreenDistance }) {
+                        reused.append((group, match))
+                    } else {
+                        fresh.append(group)
+                    }
+                }
+                return (reused, fresh)
+            }
+        } catch {
+            AppLog.write("카드 재사용 조회 실패: \(error)")
+            split = ([], groups)
+        }
+        let reused = split.reused, fresh = split.fresh
+        let toSend = Array(fresh.prefix(CardMaker.maxImages))                  // 머문 시간 긴 순으로 이미 정렬됨
+
+        var made: [(group: KeyframeSelector.Group, draft: CardMaker.Draft)] = []
+        if !toSend.isEmpty {
+            do {
+                let (drafts, result) = try await CardMaker.make(toSend, llm: llm)
+                for (index, draft) in drafts.enumerated() { if let draft { made.append((toSend[index], draft)) } }
+                if let result { AppLog.write("화면 카드 \(made.count)/\(toSend.count)장 (재사용 \(reused.count)) 토큰 \(result.promptTokens)+\(result.completionTokens)") }
+            } catch {
+                AppLog.write("화면 카드 실패 (카드 없이 계속): \(String(describing: error).prefix(200))")
+            }
+        }
+
+        let madeFinal = made
+        var byRow: [Int: [ScreenCard]] = [:]
+        do {
+            byRow = try await db.writer.write { conn in
+                var byRow: [Int: [ScreenCard]] = [:]
+                for (group, card) in reused {
+                    guard let id = card.id else { continue }
+                    try ScreenCardStore.extend(conn, cardId: id, to: group.end)
+                    try ScreenCardStore.link(conn, observationIds: group.observationIds, cardId: id)
+                    for row in group.rows { byRow[row, default: []].append(card) }
+                }
+                for (group, draft) in madeFinal {
+                    let shot = group.representative
+                    let card = try ScreenCardStore.insert(conn, ScreenCard(
+                        tsStart: group.start, tsEnd: group.end, screenHash: Int64(bitPattern: shot.hash), screenshotPath: shot.path,
+                        appBundle: group.appBundle, appName: group.appName, windowTitle: group.title, uri: group.uri,
+                        activity: draft.activity, content: draft.content.joined(separator: "\n"), kind: draft.kind,
+                        entities: CardMaker.entitiesJSON(draft.entities), createdAt: now))
+                    guard let id = card.id else { continue }
+                    try ScreenCardStore.link(conn, observationIds: group.observationIds, cardId: id)
+                    for row in group.rows { byRow[row, default: []].append(card) }
+                }
+                return byRow
+            }
+        } catch { AppLog.write("카드 저장 실패: \(error)") }
+        return byRow.mapValues { $0.sorted { $0.tsStart < $1.tsStart } }
+    }
+
     /// 사람이 읽는 배정 결과: 행 | 업무 | 자료 여부
     static func describe(_ assignments: [RowAssignment], tx: GraphTx) -> String {
         var titles: [Int64: String] = [:]
@@ -164,7 +247,7 @@ public actor OntologyBatcher {
                 if titles[taskId] == nil { titles[taskId] = (try? tx.node(id: taskId))?.title ?? "#\(taskId)" }
                 title = titles[taskId] ?? "-"
             }
-            lines.append("\(item.row.row) | \(title)\(item.resource ? "" : " | 보이기만 함")")
+            lines.append("\(item.row.row) | \(item.offTask ? "(이탈)" : title)\(item.resource ? "" : " | 자료 아님")\(item.reason.map { " | \($0)" } ?? "")")
         }
         return lines.joined(separator: "\n")
     }

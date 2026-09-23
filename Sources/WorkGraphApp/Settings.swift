@@ -21,6 +21,8 @@ struct AppSettings: Codable, Equatable {
     var showDockIcon = true
     var excludedBundles: [String] = PrivacyFilter.defaultExcludedBundles.sorted()
     var suggestFolders = true
+    /// 화면 기억 카드: 대표 화면을 LLM 에 보내 화면 내용을 기록한다
+    var screenCards = true
     /// 정리 위치 후보를 찾을 폴더들 (~ 표기 허용)
     var folderRoots: [String] = ["~/Desktop", "~/Documents"]
 
@@ -46,6 +48,7 @@ struct AppSettings: Codable, Equatable {
         showDockIcon = try c.decodeIfPresent(Bool.self, forKey: .showDockIcon) ?? d.showDockIcon
         excludedBundles = try c.decodeIfPresent([String].self, forKey: .excludedBundles) ?? d.excludedBundles
         suggestFolders = try c.decodeIfPresent(Bool.self, forKey: .suggestFolders) ?? d.suggestFolders
+        screenCards = try c.decodeIfPresent(Bool.self, forKey: .screenCards) ?? d.screenCards
         folderRoots = try c.decodeIfPresent([String].self, forKey: .folderRoots) ?? d.folderRoots
     }
 

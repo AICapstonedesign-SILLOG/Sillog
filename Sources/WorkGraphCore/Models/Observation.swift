@@ -21,16 +21,25 @@ public struct Observation: Codable, Equatable, Sendable, FetchableRecord, Mutabl
     public var taskId: Int64?
     /// 이 행의 파일·페이지가 그 업무의 자료인지 (false: 보이기만 했음)
     public var resourceRelevant: Bool
+    /// 어떤 목표에도 기여하지 않는 행 (집중 이탈)
+    public var offTask: Bool
+    /// LLM 이 적은 판정 이유
+    public var taskReason: String?
+    /// 이 행의 스크린샷 차이 해시 (64비트, 비트 패턴 그대로)
+    public var screenHash: Int64?
+    /// 이 행을 덮는 화면 기억 카드
+    public var cardId: Int64?
 
     public init(id: Int64? = nil, ts: Double, trigger: String, appBundle: String, appName: String,
                 windowTitle: String? = nil, url: String? = nil, docPath: String? = nil,
                 textId: Int64? = nil, screenshotPath: String? = nil, batchId: Int64? = nil,
-                taskId: Int64? = nil, resourceRelevant: Bool = true) {
+                taskId: Int64? = nil, resourceRelevant: Bool = true, offTask: Bool = false, taskReason: String? = nil) {
         self.id = id; self.ts = ts; self.trigger = trigger
         self.appBundle = appBundle; self.appName = appName
         self.windowTitle = windowTitle; self.url = url; self.docPath = docPath
         self.textId = textId; self.screenshotPath = screenshotPath; self.batchId = batchId
-        self.taskId = taskId; self.resourceRelevant = resourceRelevant
+        self.taskId = taskId; self.resourceRelevant = resourceRelevant; self.offTask = offTask; self.taskReason = taskReason
+        self.screenHash = nil; self.cardId = nil
     }
 
     enum CodingKeys: String, CodingKey {
@@ -46,6 +55,10 @@ public struct Observation: Codable, Equatable, Sendable, FetchableRecord, Mutabl
         case batchId = "batch_id"
         case taskId = "task_id"
         case resourceRelevant = "resource_relevant"
+        case offTask = "off_task"
+        case taskReason = "task_reason"
+        case screenHash = "screen_hash"
+        case cardId = "card_id"
     }
 
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }

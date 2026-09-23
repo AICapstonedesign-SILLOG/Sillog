@@ -19,6 +19,13 @@ public struct ActivityRow: Codable, Equatable, Sendable {
     public var isChat: Bool = false
     /// 이 행에 들어간 대화 메시지 id (처리 완료 표시용)
     public var chatMessageIds: [Int64] = []
+
+    public init(row: Int, start: Double, end: Double, dwell: Int, app: String, appBundle: String, title: String?, uri: String?, type: String?,
+                projectKey: String?, projectTitle: String?, snippet: String?, observationIds: [Int64], isChat: Bool = false, chatMessageIds: [Int64] = []) {
+        self.row = row; self.start = start; self.end = end; self.dwell = dwell; self.app = app; self.appBundle = appBundle
+        self.title = title; self.uri = uri; self.type = type; self.projectKey = projectKey; self.projectTitle = projectTitle
+        self.snippet = snippet; self.observationIds = observationIds; self.isChat = isChat; self.chatMessageIds = chatMessageIds
+    }
 }
 
 public enum EventCompressor {

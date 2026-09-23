@@ -39,6 +39,14 @@ public struct EventStore: Sendable {
         }
     }
 
+    /// 스크린샷과 그 차이 해시를 행에 붙인다 (화면 기억 카드의 재료). path 가 nil 이면 해시만
+    public func attachScreen(observationId: Int64, path: String?, hash: UInt64) throws {
+        try db.writer.write { conn in
+            try conn.execute(sql: "UPDATE observations SET screenshot_path = COALESCE(?, screenshot_path), screen_hash = ? WHERE id = ?",
+                             arguments: [path, Int64(bitPattern: hash), observationId])
+        }
+    }
+
     public func insertFileEvent(_ event: FileEvent) throws {
         try db.writer.write { conn in
             var copy = event
@@ -66,11 +74,36 @@ public struct EventStore: Sendable {
     }
 
     /// 행의 업무 판단을 기록한다 (LLM 판단의 원본). 세션·그래프는 여기서 다시 만들 수 있다
-    public static func assign(_ conn: Database, observationIds: [Int64], taskId: Int64?, relevant: Bool) throws {
+    public static func assign(_ conn: Database, observationIds: [Int64], taskId: Int64?, relevant: Bool, offTask: Bool = false, reason: String? = nil) throws {
         guard !observationIds.isEmpty else { return }
         let list = observationIds.map(String.init).joined(separator: ",")
-        try conn.execute(sql: "UPDATE observations SET task_id = ?, resource_relevant = ? WHERE id IN (\(list))", arguments: [taskId, relevant])
+        try conn.execute(sql: "UPDATE observations SET task_id = ?, resource_relevant = ?, off_task = ?, task_reason = ? WHERE id IN (\(list))",
+                         arguments: [taskId, relevant, offTask, reason])
     }
+
+    /// 집중 이탈 시간: 기간 안의 이탈 행을 앱별로 합친다 (초). 행의 체류는 다음 관측까지의 간격, 최대 maxGap.
+    /// 내용 없는 행(빈 탭·로그인·시스템 화면)은 LLM 이 이탈이라 했어도 시간에 넣지 않는다 — 딴짓이 아니라 아무것도 아닌 시간이다
+    public func offTaskSeconds(from: Double, to: Double, maxGap: Double = 90) throws -> [(app: String, seconds: Double)] {
+        let spans: [(app: String, bundle: String, title: String?, url: String?, dwell: Double)] = try db.writer.read { conn in
+            try Row.fetchAll(conn, sql: """
+                WITH spans AS (
+                  SELECT app_name, app_bundle, window_title, url, off_task, MIN(COALESCE(LEAD(ts) OVER (ORDER BY ts, id), ts) - ts, ?) AS dwell
+                  FROM observations WHERE ts >= ? AND ts < ?
+                )
+                SELECT app_name, app_bundle, window_title, url, dwell FROM spans WHERE off_task = 1
+                """, arguments: [maxGap, from, to]).map { ($0["app_name"] as String, $0["app_bundle"] as String, $0["window_title"] as String?, $0["url"] as String?, $0["dwell"] as Double? ?? 0) }
+        }
+        var seconds: [String: Double] = [:]
+        for span in spans {
+            guard !Self.contentlessBundles.contains(span.bundle), !TransientPages.isTransient(url: span.url, title: span.title) else { continue }
+            let hasContent = !(span.title ?? "").trimmingCharacters(in: .whitespaces).isEmpty || !(span.url ?? "").isEmpty
+            guard hasContent else { continue }
+            seconds[span.app, default: 0] += span.dwell
+        }
+        return seconds.sorted { $0.value > $1.value }.map { (app: $0.key, seconds: $0.value) }
+    }
+
+    public static let contentlessBundles: Set<String> = ["com.apple.loginwindow", "com.apple.ScreenSaver.Engine", "com.apple.finder", "com.capstone.workgraph", "excluded"]
 
     public static func assignChats(_ conn: Database, ids: [Int64], taskId: Int64?) throws {
         guard !ids.isEmpty else { return }

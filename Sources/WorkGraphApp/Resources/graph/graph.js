@@ -40,7 +40,7 @@
   const TIME_PROPS = new Set(['start', 'end', 'last_active', 'started_at', 'at']);
   const PROP_NAMES = { active_seconds: '작업 시간', start: '시작', end: '끝', last_active: '마지막 활동', started_at: '처음 시작',
                        status: '상태', summary: '요약', kind: '종류', done: '완료 여부', at: '시각', source_app: '받은 곳' };
-  const HIDDEN_PROPS = new Set(['last_seen']);
+  const HIDDEN_PROPS = new Set(['last_seen', 'summary', 'project_seconds']);
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   const $ = id => document.getElementById(id);
@@ -59,6 +59,9 @@
   function post(message) {
     try { window.webkit.messageHandlers.wg.postMessage(message); return true; } catch (_) { return false; }
   }
+  // 화면에서 난 오류는 앱 로그로 보낸다 (패널이 비는 식의 문제를 나중에 추적할 수 있게)
+  window.addEventListener('error', event => post({ type: 'log', message: `graph.js 오류: ${event.message} (${event.lineno}:${event.colno})` }));
+  window.addEventListener('unhandledrejection', event => post({ type: 'log', message: `graph.js 오류: ${event.reason}` }));
 
   // ── 그래프 ────────────────────────────────────────────────────────────────
   const Graph = ForceGraph()($('graph'))
@@ -343,6 +346,10 @@
     if (watched > 0) rows.push([node.label === 'App' ? '사용 시간' : '본 시간', duration(watched)]);
     for (const [key, value] of Object.entries(node.props || {})) {
       if (HIDDEN_PROPS.has(key) || value === null || value === '') continue;
+      if (key === 'summaries') {                        // 세션: 배치마다 쌓인 "한 일" 목록
+        if (Array.isArray(value) && value.length) rows.push(['한 일', value.map(v => '· ' + v).join('\n')]);
+        continue;
+      }
       let text = String(value);
       if (key === 'active_seconds') text = duration(value);
       else if (TIME_PROPS.has(key) && typeof value === 'number') text = clock(value);

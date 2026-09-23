@@ -32,6 +32,8 @@ final class AppState: ObservableObject {
     @Published var fileError: String?
     @Published var notificationsDenied = false
     @Published var taskList: [TaskSummary] = []
+    /// 오늘 업무 외(집중 이탈) 시간: 앱별 초
+    @Published var offTaskToday: [(app: String, seconds: Double)] = []
     @Published var resumeRequest: ResumeRequest?
     @Published var bootstrapped = false
 
@@ -68,8 +70,11 @@ final class AppState: ObservableObject {
             self.db = database
             self.store = store
             self.coordinator = coordinator
-            self.batcher = OntologyBatcher(db: database, llm: makeClient())
-            self.suggester = FolderSuggester(db: database, llm: makeClient())
+            let batcher = OntologyBatcher(db: database, llm: makeClient())
+            self.batcher = batcher
+            let cardsOn = settings.screenCards && settings.captureScreenshots
+            Task { await batcher.setScreenCards(cardsOn) }
+            self.suggester = FolderSuggester(db: database, llm: makeQuickClient())
             notifier.onAction = { [weak self] action, id in Task { @MainActor in self?.handleNotificationAction(action, id: id) } }
             notifier.onDenied = { [weak self] denied in Task { @MainActor in self?.notificationsDenied = denied } }
         } catch {
@@ -163,8 +168,14 @@ final class AppState: ObservableObject {
         return OpenAICompatClient(baseURL: url, model: settings.llmModel, apiKey: settings.llmAPIKey.isEmpty ? nil : settings.llmAPIKey)
     }
 
+    /// 행 배정(배치)용: 추론 medium. 평가에서 low 보다 업무 판정 +1.6%p, 자료 판정 +4%p 였고 배치는 백그라운드라 지연이 상관없다
     private func makeClient() -> any LLMClient {
-        settings.llmProvider == "openai" ? makeOpenAIClient() : CodexResponsesClient(auth: codexAuth, model: settings.codexModel)
+        settings.llmProvider == "openai" ? makeOpenAIClient() : CodexResponsesClient(auth: codexAuth, model: settings.codexModel, reasoningEffort: "medium")
+    }
+
+    /// 파일 정리 제안용: 알림이 바로 떠야 하므로 low
+    private func makeQuickClient() -> any LLMClient {
+        settings.llmProvider == "openai" ? makeOpenAIClient() : CodexResponsesClient(auth: codexAuth, model: settings.codexModel, reasoningEffort: "low")
     }
 
     // MARK: ChatGPT 로그인
@@ -289,11 +300,13 @@ final class AppState: ObservableObject {
         NSApp.setActivationPolicy(settings.showDockIcon ? .regular : .accessory)
         let collectorSettings = settings.collector
         let client = makeClient()
-        if let db { suggester = FolderSuggester(db: db, llm: client) }
+        let cardsOn = settings.screenCards && settings.captureScreenshots
+        if let db { suggester = FolderSuggester(db: db, llm: makeQuickClient()) }
         folderIndex = nil                                   // 검색 폴더가 바뀌었을 수 있으니 다음 제안 때 다시 색인
         Task { [coordinator, batcher] in
             await coordinator?.update(settings: collectorSettings)
             await batcher?.setLLM(client)
+            await batcher?.setScreenCards(cardsOn)
         }
     }
 

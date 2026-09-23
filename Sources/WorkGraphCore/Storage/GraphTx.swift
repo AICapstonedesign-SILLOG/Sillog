@@ -53,6 +53,20 @@ public struct GraphTx {
         return id
     }
 
+    /// 어느 세션도 만지지 않고 문제 해결·파일 출처로도 안 쓰인 자료 노드를 지운다. 지운 수를 돌려준다
+    @discardableResult
+    public func pruneOrphanResources() throws -> Int {
+        let orphans = try Int64.fetchAll(db, sql: """
+            SELECT id FROM nodes WHERE label = 'Resource'
+              AND id NOT IN (SELECT dst FROM edges WHERE type IN ('TOUCHED', 'RESOLVED_BY', 'DERIVED_FROM'))
+            """)
+        for id in orphans {
+            try db.execute(sql: "DELETE FROM edges WHERE src = ? OR dst = ?", arguments: [id, id])
+            try db.execute(sql: "DELETE FROM nodes WHERE id = ?", arguments: [id])
+        }
+        return orphans.count
+    }
+
     public func deleteEdge(id: Int64) throws {
         try db.execute(sql: "DELETE FROM edges WHERE id = ?", arguments: [id])
     }

@@ -14,7 +14,11 @@ public enum AppLog {
         URL(fileURLWithPath: WGDatabase.defaultPath()).deletingLastPathComponent().appendingPathComponent("app.log")
     }
 
+    /// 테스트 중에는 사용자의 실제 로그에 쓰지 않는다
+    static let isTesting = NSClassFromString("XCTestCase") != nil
+
     public static func write(_ message: String) {
+        guard !isTesting else { return }
         let line = "\(formatter.string(from: Date()))  \(message)\n"
         queue.async {
             let url = fileURL

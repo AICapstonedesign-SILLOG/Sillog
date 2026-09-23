@@ -85,7 +85,7 @@ button, input { font: inherit; color: inherit; }
 #openKey:hover, #resumeKey:hover { background: rgba(168, 130, 255, 0.3); }
 #detailProps { display: grid; grid-template-columns: auto 1fr; gap: 5px 12px; margin-top: 16px; }
 #detailProps dt { color: var(--muted); }
-#detailProps dd { margin: 0; overflow-wrap: anywhere; }
+#detailProps dd { margin: 0; overflow-wrap: anywhere; white-space: pre-line; }
 #detailLinks h2 { font-size: 11px; font-weight: 600; color: var(--muted); margin: 18px 0 5px; }
 #detailLinks ul { list-style: none; display: grid; gap: 1px; }
 #detailLinks button {

@@ -33,15 +33,7 @@ public enum ResumePlanner {
     public static let browsers: Set<String> = ["com.google.Chrome", "com.apple.Safari", "com.naver.Whale", "org.mozilla.firefox", "company.thebrowser.Browser",
                                                "com.microsoft.edgemac", "com.brave.Browser", "com.google.Chrome.canary"]
     /// 검색 결과·로그인·새로 만들기 같은 지나가는 페이지는 다시 열 대상이 아니다
-    static func isTransient(url: String) -> Bool {
-        guard let components = URLComponents(string: url), let host = components.host?.lowercased() else { return true }
-        let path = components.path.lowercased(), query = components.query?.lowercased() ?? ""
-        if host.hasSuffix("google.com") || host.hasSuffix("google.co.kr") { return path.hasPrefix("/search") || path == "/" }
-        if host == "search.naver.com" || host == "www.bing.com" && path.hasPrefix("/search") || host == "duckduckgo.com" { return true }
-        if path.contains("/login") || path.contains("/signin") || path.contains("/oauth") || query.contains("error=") { return true }
-        if host == "github.com" && (path == "/new" || path == "/login") { return true }
-        return false
-    }
+    static func isTransient(url: String) -> Bool { TransientPages.isTransient(url: url, title: nil) }
 
     static let editors: Set<String> = ["com.microsoft.VSCode", "com.apple.dt.Xcode", "com.jetbrains.intellij", "com.jetbrains.pycharm", "com.todesktop.230313mzl4w4u92"]
 

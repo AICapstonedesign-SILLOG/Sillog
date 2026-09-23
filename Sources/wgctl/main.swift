@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import GRDB
 import WorkGraphCore
 import WorkGraphCollectors
@@ -45,6 +46,10 @@ wgctl [--db PATH] <command>
   clean-topics [--yes]                  주제 노드 중 앱·플랫폼·프로젝트 이름·채움말을 찾아 보여 주고, --yes 면 지운다 (앱을 끄고 실행)
   rebind-projects                       업무 ↔ 프로젝트를 1:1 로 다시 맞춘다 (기존 ON 엣지의 시간을 근거로. 앱을 끄고 실행)
   merge-tasks [--dry] [--days N]        제목만 다른 같은 목표의 업무를 LLM 에 물어 합친다 (--dry: 묻기만. 앱을 끄고 실행)
+  eval-assign SCENARIO.json [--out result.json] [--runs N]
+                                        정답이 붙은 가짜 하루를 LLM 에 보내 행 판정(업무/이탈/없음, 자료 여부)을 채점한다 (기록 안 함)
+  backfill-screen-hash                  예전 스크린샷 파일에서 차이 해시를 계산해 원시 행에 채운다 (화면 기억 카드의 재료)
+  cards [--last N]                      화면 기억 카드 (무엇을 했나, 화면 내용, 이름 붙은 것들)
   topic-audit [--last N]                지난 배치들의 LLM 응답에서 주제 태그를 모아 필터가 거를 것을 센다 (프롬프트 대 필터 평가)
   replay-batch ID [ID…]                 저장된 배치의 입력을 지금 프롬프트로 다시 보내 응답을 비교한다 (기록하지 않음. 배치당 LLM 호출 1번)
 
@@ -98,7 +103,7 @@ func makeClient() -> (client: any LLMClient, pingable: OpenAICompatClient?) {
         let client = OpenAICompatClient(baseURL: url, model: model, apiKey: option("--api-key"))
         return (client, client)
     }
-    return (CodexResponsesClient(auth: codexAuth, model: model), nil)
+    return (CodexResponsesClient(auth: codexAuth, model: model, reasoningEffort: option("--reasoning") ?? "medium"), nil)
 }
 
 func describe(_ status: CodexAuthStatus) -> String {
@@ -238,7 +243,7 @@ do {
         let instance = InstanceLock(databasePath: dbPath)
         guard instance.acquire() else { fail("이 DB 를 쓰는 WorkGraph 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
         try db.writer.write { conn in
-            try conn.execute(sql: "UPDATE observations SET batch_id = NULL, task_id = NULL, resource_relevant = 1")
+            try conn.execute(sql: "UPDATE observations SET batch_id = NULL, task_id = NULL, resource_relevant = 1, off_task = 0, task_reason = NULL, card_id = NULL")
             try conn.execute(sql: "UPDATE chat_messages SET batch_id = NULL, task_id = NULL")
             try conn.execute(sql: "DELETE FROM edges")
             try conn.execute(sql: "DELETE FROM nodes")
@@ -431,6 +436,119 @@ do {
         instance.release()
         for (task, project, seconds) in chosen { print("  \(task) → \(project)  (\(Int(seconds))초)") }
         print("업무 ↔ 프로젝트 \(chosen.count)쌍. 나머지 연결은 지웠습니다.")
+
+    case "eval-assign":
+        let outPath = option("--out")
+        let runs = option("--runs").flatMap(Int.init) ?? 1
+        guard let file = args.first, let data = FileManager.default.contents(atPath: file),
+              let scenario = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let rowSpecs = scenario["rows"] as? [[String: Any]] else { fail("사용법: eval-assign SCENARIO.json") }
+        let base = 1_790_000_000.0                                   // 가짜 하루의 시작 시각
+        var rows: [ActivityRow] = []
+        for (index, spec) in rowSpecs.enumerated() {
+            let start = base + (spec["min"] as? Double ?? 0) * 60, dur = (spec["dur"] as? Double ?? 0) * 60
+            var row = ActivityRow(row: index + 1, start: start, end: start + dur, dwell: Int(dur),
+                                  app: spec["app"] as? String ?? "?", appBundle: spec["bundle"] as? String ?? "?",
+                                  title: spec["title"] as? String, uri: spec["uri"] as? String, type: spec["type"] as? String,
+                                  projectKey: spec["project"] as? String, projectTitle: (spec["project"] as? String).map { ($0 as NSString).lastPathComponent },
+                                  snippet: spec["text"] as? String, observationIds: [Int64(index + 1)])
+            row.isChat = spec["chat"] as? Bool ?? false
+            rows.append(row)
+        }
+        let openTasks = (scenario["open_tasks"] as? [[String: Any]] ?? []).map { task in
+            TaskDigest(id: task["id"] as? String ?? "", title: task["title"] as? String ?? "", taskType: task["type"] as? String,
+                       topics: task["topics"] as? [String] ?? [], recentResources: task["resources"] as? [String] ?? [], lastActive: base,
+                       recentSummaries: task["recent"] as? [String] ?? [])
+        }
+        let prompt = OntologyPrompt.build(rows: rows, openTasks: openTasks, now: base + 7_200)
+        let effort = option("--reasoning")                               // low | medium | high
+        let client: any LLMClient = effort.map { CodexResponsesClient(auth: codexAuth, model: option("--model") ?? CodexResponsesClient.defaultModel, reasoningEffort: $0) } ?? makeClient().client
+        var results: [[String: Any]] = []
+        for run in 1...max(1, runs) {
+            let started = Date()
+            let answer = try await client.callFunction(system: prompt.system, user: prompt.user, tool: AssignmentSchema.tool)
+            guard let patch = AssignmentPatch.decodeLenient(from: answer.arguments) else { fail("응답 해석 실패: \(answer.raw.prefix(300))") }
+            let elapsed = Date().timeIntervalSince(started)
+            // ref → 사람이 읽는 이름과 정답 비교용 키
+            var refName: [String: String] = [:], refKey: [String: String] = [:]
+            for def in patch.tasks {
+                if def.match == "existing", let id = def.id { refName[def.ref] = openTasks.first { $0.id == id }?.title ?? id; refKey[def.ref] = id }
+                else { refName[def.ref] = "새: " + (def.title ?? "?"); refKey[def.ref] = "new:" + (def.title ?? "") }
+            }
+            let decided = patch.byRow()
+            var correct = 0, resourceCorrect = 0, resourceJudged = 0
+            var rowResults: [[String: Any]] = []
+            for (index, spec) in rowSpecs.enumerated() {
+                let number = index + 1
+                let expect = spec["expect"] as? [String: Any] ?? [:]
+                let expectedTasks: [String?] = (expect["task"] as? [Any]).map { $0.map { $0 as? String } } ?? [expect["task"] as? String]   // "t_x" | "new:라벨" | "off" | nil, 여러 개면 그중 하나
+                let expectedTask = expectedTasks.first ?? nil
+                let expectedResource = expect["resource"]                // true | false | "any"
+                let decision = decided[number]
+                let actualRef = decision?.task
+                let actualKey: String? = actualRef.flatMap { $0 == AssignmentPatch.offTask ? "off" : refKey[$0] }
+                let actualName: String = actualRef.map { $0 == AssignmentPatch.offTask ? "이탈" : (refName[$0] ?? $0) } ?? (decision == nil ? "(언급 없음)" : "없음")
+                func matches(_ wanted: String?) -> Bool {
+                    guard let wanted else { return actualKey == nil && decision != nil }
+                    if wanted == "off" { return actualKey == "off" }
+                    if wanted.hasPrefix("new:") { return actualKey?.hasPrefix("new:") ?? false }
+                    return actualKey == wanted
+                }
+                let taskOK = expectedTasks.contains(where: matches)
+                let resourceActual = decision?.resource ?? AssignmentApplier.defaultResource(rows[index])
+                var resourceOK: Bool? = nil
+                if let wanted = expectedResource as? Bool, expectedTask != nil, expectedTask != "off" {
+                    resourceOK = resourceActual == wanted; resourceJudged += 1; if resourceOK == true { resourceCorrect += 1 }
+                }
+                if taskOK { correct += 1 }
+                rowResults.append(["row": number, "app": spec["app"] ?? "", "title": spec["title"] ?? NSNull(), "uri": spec["uri"] ?? NSNull(), "reason": decision?.reason ?? NSNull(),
+                                   "text": spec["text"] ?? NSNull(), "min": spec["min"] ?? 0, "dur": spec["dur"] ?? 0, "why": spec["why"] ?? "",
+                                   "expected_task": expectedTask ?? NSNull(), "expected_tasks": expectedTasks.map { $0 ?? "null" }, "expected_resource": expectedResource ?? NSNull(),
+                                   "actual_task": actualKey ?? NSNull(), "actual_name": actualName, "actual_resource": resourceActual,
+                                   "task_ok": taskOK, "resource_ok": resourceOK ?? NSNull()])
+            }
+            let work = patch.work.map { ["task": refName[$0.task] ?? $0.task, "summary": $0.summary, "topics": $0.topics] }
+            let problems = (patch.problems ?? []).map { ["row": $0.row, "kind": $0.kind, "message": $0.message, "resolved_by_row": $0.resolvedByRow ?? NSNull()] as [String: Any] }
+            print("run \(run): 업무 판정 \(correct)/\(rowSpecs.count), 자료 판정 \(resourceCorrect)/\(resourceJudged), \(String(format: "%.1f", elapsed))초, 토큰 \(answer.promptTokens)+\(answer.completionTokens)")
+            for r in rowResults where !(r["task_ok"] as? Bool ?? false) || (r["resource_ok"] as? Bool) == false {
+                print("  ✗ \(r["row"] ?? 0) \(r["title"] ?? "") — 기대 \(r["expected_task"] ?? "없음")/\(r["expected_resource"] ?? "-") 실제 \(r["actual_name"] ?? "")/\(r["actual_resource"] ?? "")")
+            }
+            results.append(["run": run, "elapsed": elapsed, "model": answer.model, "prompt_tokens": answer.promptTokens, "completion_tokens": answer.completionTokens,
+                            "task_correct": correct, "resource_correct": resourceCorrect, "resource_judged": resourceJudged,
+                            "tasks": patch.tasks.map { ["ref": $0.ref, "match": $0.match, "id": $0.id ?? NSNull(), "title": $0.title ?? NSNull(), "task_type": $0.taskType ?? NSNull()] as [String: Any] },
+                            "work": work, "problems": problems, "rows": rowResults])
+        }
+        if let outPath {
+            let payload: [String: Any] = ["scenario": file, "persona": scenario["persona"] ?? "", "open_tasks": scenario["open_tasks"] ?? [],
+                                          "system_prompt": prompt.system, "user_prompt": prompt.user, "runs": results]
+            try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]).write(to: URL(fileURLWithPath: outPath))
+            print("결과 → \(outPath)")
+        }
+
+    case "backfill-screen-hash":
+        let rows: [(Int64, String)] = try db.writer.read { conn in
+            try Row.fetchAll(conn, sql: "SELECT id, screenshot_path FROM observations WHERE screenshot_path IS NOT NULL AND screen_hash IS NULL")
+                .map { ($0["id"] as Int64, $0["screenshot_path"] as String) }
+        }
+        var filled = 0, missing = 0
+        for (id, path) in rows {
+            guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+                  let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { missing += 1; continue }
+            try store.attachScreen(observationId: id, path: nil, hash: ScreenCapturer.differenceHash(image))
+            filled += 1
+        }
+        print("해시 \(filled)개 채움, 파일 없음 \(missing)개")
+
+    case "cards":
+        let last = option("--last").flatMap(Int.init) ?? 20
+        let cards = try db.writer.read { try ScreenCard.fetchAll($0, sql: "SELECT * FROM screen_cards ORDER BY ts_start DESC LIMIT ?", arguments: [last]) }
+        for card in cards.reversed() {
+            let start = Date(timeIntervalSince1970: card.tsStart).formatted(date: .numeric, time: .shortened)
+            print("#\(card.id ?? 0) \(start) [\(card.kind)] \(card.appName) | \(card.windowTitle ?? "-")")
+            print("   \(card.activity)")
+            for line in card.contentLines { print("   · \(line)") }
+            if card.entities != "{}" { print("   entities: \(card.entities)") }
+        }
 
     case "topic-audit":
         let last = option("--last").flatMap(Int.init) ?? 200

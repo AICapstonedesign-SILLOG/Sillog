@@ -204,7 +204,8 @@ public actor CollectorCoordinator {
         var text = ""
         if settings.captureText, let read = sampler.readText(pid: snapshot.pid) { text = read.text }
         let needOCR = settings.captureText && text.count < settings.ocrMinChars
-        let image = await captureScreenshot(observationId: observationId, snapshot: snapshot, needImageForOCR: needOCR)
+        // 화면이 바뀌었으면 한 장은 꼭 남긴다 (화면 기억 카드의 대표 후보)
+        let image = await captureScreenshot(observationId: observationId, snapshot: snapshot, needImageForOCR: needOCR, contextChanged: true)
 
         var source = "ax"
         if needOCR, let image {
@@ -220,17 +221,20 @@ public actor CollectorCoordinator {
 
     /// 화면이 거의 안 바뀌었으면 저장하지 않는다. OCR 용으로만 필요한 경우 이미지는 돌려주되 파일은 남기지 않을 수 있다.
     @discardableResult
-    private func captureScreenshot(observationId: Int64, snapshot: ContextSnapshot, needImageForOCR: Bool) async -> CGImage? {
+    private func captureScreenshot(observationId: Int64, snapshot: ContextSnapshot, needImageForOCR: Bool, contextChanged: Bool = false) async -> CGImage? {
         let now = Date().timeIntervalSince1970
-        let wantsFile = settings.captureScreenshots && now - lastScreenshotAt >= settings.screenshotMinInterval
+        // 화면이 바뀐 직후는 간격과 상관없이 찍는다 (2초 안의 연속 전환만 거른다). 같은 화면에 머무는 동안은 간격을 지킨다
+        let minInterval = contextChanged ? 2.0 : settings.screenshotMinInterval
+        let wantsFile = settings.captureScreenshots && now - lastScreenshotAt >= minInterval
         guard wantsFile || needImageForOCR, CGPreflightScreenCaptureAccess() else { return nil }
         let privacy = PrivacyFilter(excludedBundles: settings.excludedBundles)
         guard let image = await capturer.capture(excluding: privacy) else { return nil }
         guard snapshot.sameContext(as: last) else { return nil }          // 뜨는 사이 다른 창으로 갔으면 버린다
 
+        let hash = ScreenCapturer.differenceHash(image)
         if wantsFile {
-            let hash = ScreenCapturer.differenceHash(image)
-            if lastScreenshotHash.map({ !ScreenCapturer.isSimilar($0, hash) }) ?? true {
+            // 같은 화면에 머무는 동안은 내용이 바뀐 것(스크롤 등)만 저장한다. 화면이 바뀐 직후는 비슷해 보여도 저장한다
+            if contextChanged || (lastScreenshotHash.map({ !ScreenCapturer.isSimilar($0, hash) }) ?? true) {
                 let date = Date(timeIntervalSince1970: now)
                 let day = DateFormatter(); day.dateFormat = "yyyy-MM-dd"
                 let time = DateFormatter(); time.dateFormat = "HHmmss"
@@ -240,10 +244,12 @@ public actor CollectorCoordinator {
                     lastScreenshotHash = hash
                     lastScreenshotAt = now
                     status.screenshots += 1
-                    try? store.attach(observationId: observationId, textId: nil, screenshotPath: url.path)
+                    try? store.attachScreen(observationId: observationId, path: url.path, hash: hash)
+                    return image
                 }
             }
         }
+        try? store.attachScreen(observationId: observationId, path: nil, hash: hash)     // 저장은 안 했어도 해시는 남긴다
         return image
     }
 

@@ -27,6 +27,8 @@ struct SettingsView: View {
             Section("수집") {
                 Toggle("화면 텍스트 읽기", isOn: $state.settings.captureText)
                 Toggle("스크린샷 저장", isOn: $state.settings.captureScreenshots)
+                Toggle("화면 내용 기록 (스크린샷을 LLM에 보냄)", isOn: $state.settings.screenCards)
+                    .disabled(!state.settings.captureScreenshots)
                 Toggle("다운로드 폴더의 새 파일 기록", isOn: $state.settings.watchDownloads)
                 Toggle("AI 코딩 도구 대화 읽기 (Claude Code, Codex CLI)", isOn: $state.settings.readChatLogs)
                 Stepper("스크린샷 보관 \(state.settings.retentionDays)일", value: $state.settings.retentionDays, in: 1...90)

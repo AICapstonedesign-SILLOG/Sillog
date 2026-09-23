@@ -62,7 +62,7 @@ public final class DemoLLM: LLMClient, @unchecked Sendable {
             var end = start
             while end + 1 < rows.count, assigned[end + 1] == assigned[start] { end += 1 }
             let key = assigned[start] ?? "frontend"
-            rowRefs.append(["rows": start == end ? "\(rows[start].number)" : "\(rows[start].number)-\(rows[end].number)", "task": ref(for: key)])
+            rowRefs.append(["rows": start == end ? "\(rows[start].number)" : "\(rows[start].number)-\(rows[end].number)", "task": ref(for: key), "resource": true])
             start = end + 1
         }
         var work: [[String: Any]] = []

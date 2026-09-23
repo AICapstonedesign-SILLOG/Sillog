@@ -121,12 +121,17 @@ public final class CodexResponsesClient: LLMClient, @unchecked Sendable {
     }
 
     public func callFunction(system: String, user: String, tool: ToolSpec) async throws -> LLMResult {
+        try await callFunction(system: system, user: user, images: [], tool: tool)
+    }
+
+    /// 이미지(JPEG·PNG 데이터)를 함께 보내는 호출. detail: "low" | "high" | "auto"
+    public func callFunction(system: String, user: String, images: [(data: Data, mime: String)], detail: String = "auto", tool: ToolSpec) async throws -> LLMResult {
         var credentials: CodexCredentials
         do { credentials = try await auth.credentials() } catch let error as CodexAuthError { throw LLMError.auth(error.description) }
 
         var refreshed = false, forceTool = true
         while true {
-            let (status, raw) = try await send(system: system, user: user, tool: tool, credentials: credentials, forceTool: forceTool)
+            let (status, raw) = try await send(system: system, user: user, images: images, detail: detail, tool: tool, credentials: credentials, forceTool: forceTool)
             if status == 401, !refreshed {                                  // 토큰이 거절됨: 한 번만 갱신하고 다시
                 refreshed = true
                 do { credentials = try await auth.refreshAfterRejection(of: credentials.accessToken) }
@@ -144,12 +149,17 @@ public final class CodexResponsesClient: LLMClient, @unchecked Sendable {
 
     // MARK: 요청
 
-    private func send(system: String, user: String, tool: ToolSpec, credentials: CodexCredentials, forceTool: Bool) async throws -> (Int, String) {
+    private func send(system: String, user: String, images: [(data: Data, mime: String)] = [], detail: String = "auto", tool: ToolSpec,
+                      credentials: CodexCredentials, forceTool: Bool) async throws -> (Int, String) {
         let parameters = (try? JSONSerialization.jsonObject(with: JSONEncoder().encode(tool.parameters))) ?? [String: Any]()
+        var content: [[String: Any]] = [["type": "input_text", "text": user]]
+        for image in images {
+            content.append(["type": "input_image", "image_url": "data:\(image.mime);base64,\(image.data.base64EncodedString())", "detail": detail])
+        }
         var body: [String: Any] = [
             "model": model,
             "instructions": system,
-            "input": [["type": "message", "role": "user", "content": [["type": "input_text", "text": user]]]],
+            "input": [["type": "message", "role": "user", "content": content]],
             "tools": [["type": "function", "name": tool.name, "description": tool.description, "parameters": parameters, "strict": false]],
             "tool_choice": forceTool ? ["type": "function", "name": tool.name] as Any : "auto",
             "parallel_tool_calls": false,

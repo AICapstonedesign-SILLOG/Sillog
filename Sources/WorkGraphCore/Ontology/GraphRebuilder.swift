@@ -92,6 +92,7 @@ public struct GraphRebuilder {
                 }
             }
             try tx.rebindProjects(at: now)
+            try tx.pruneOrphanResources()                                   // 이제 아무 세션도 안 만지는 자료는 뺀다
             stats.tasks = taskIds.count; stats.sessions = sessionStats.sessions; stats.resources = sessionStats.resources
         }
         return stats

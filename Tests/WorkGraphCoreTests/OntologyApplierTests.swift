@@ -27,7 +27,7 @@ enum Fixtures {
     /// 행 6개가 전부 한 업무. 문제 하나(4행, 5행 페이지로 해결), 나중에 할 일 하나(6행)
     static let frontendPatchJSON = """
     {"tasks":[{"ref":"A","match":"new","title":"대시보드 카드 UI 구현","task_type":"코드작성"}],
-     "rows":[{"rows":"1-6","task":"A"}],
+     "rows":[{"rows":"1-6","task":"A","resource":true}],
      "work":[{"task":"A","summary":"TaskCard 컴포넌트 구현, key prop 경고 해결","topics":["React","shadcn/ui"]}],
      "problems":[{"row":4,"kind":"build","message":"React key prop warning","resolved_by_row":5}],
      "later_items":[{"row":6,"text":"카드 간격 16px로 조정"}]}
@@ -83,6 +83,7 @@ final class OntologyApplierTests: XCTestCase {
             XCTAssertEqual(session.props["end"], .number(rows[5].end))
             XCTAssertEqual(session.props["active_seconds"], 5280)
             XCTAssertEqual(session.props["summary"], "TaskCard 컴포넌트 구현, key prop 경고 해결")
+            XCTAssertTrue(session.title.contains("–") && session.title.hasSuffix("· 대시보드 카드 UI 구현"), "세션 제목 = 시간대 · 업무: \(session.title)")
             XCTAssertEqual(try tx.edges(from: session.id, type: "PART_OF").first?.dst, task.id)
 
             // 같은 앱(Chrome) 세 행의 USED 는 한 엣지에 누적된다.
@@ -125,7 +126,7 @@ final class OntologyApplierTests: XCTestCase {
         let patch = try Fixtures.patch("""
         {"tasks":[{"ref":"A","match":"new","title":"대시보드 카드 UI 구현","task_type":"코드작성"},
                   {"ref":"B","match":"new","title":"YouTube 시청","task_type":"기타"}],
-         "rows":[{"rows":"1-4","task":"A"},{"rows":"5","task":"B"},{"rows":"6","task":"A"},{"rows":"7","task":null}],
+         "rows":[{"rows":"1-4","task":"A","resource":true},{"rows":"5","task":"B","resource":true},{"rows":"6","task":"A","resource":true},{"rows":"7","task":null}],
          "work":[{"task":"A","summary":"카드 구현","topics":["React"]},{"task":"B","summary":"영상 시청","topics":[]}]}
         """)
         try db.writer.write { conn in
@@ -180,7 +181,9 @@ final class OntologyApplierTests: XCTestCase {
             XCTAssertEqual(sessions.count, 1)
             XCTAssertEqual(sessions[0].props["end"], .number(next.end))
             XCTAssertEqual(sessions[0].props["active_seconds"], 5480)
-            XCTAssertEqual(sessions[0].props["summary"], "카드 간격 조정")
+            XCTAssertEqual(sessions[0].props["summary"], "카드 간격 조정", "가장 최근 요약")
+            XCTAssertEqual(sessions[0].props["summaries"]?.arrayValue?.compactMap(\.stringValue), ["TaskCard 컴포넌트 구현, key prop 경고 해결", "카드 간격 조정"], "배치마다 한 문장씩 쌓인다")
+            XCTAssertTrue(sessions[0].title.hasSuffix(" · 대시보드 카드 UI 구현"), sessions[0].title)
             let task = try XCTUnwrap(tx.nodes(label: "Task").first)
             XCTAssertEqual(task.title, "대시보드 카드 UI 구현")          // 기존 제목 유지
             XCTAssertEqual(task.props["active_seconds"], 5480)
@@ -249,6 +252,7 @@ final class OntologyApplierTests: XCTestCase {
         XCTAssertEqual(byRow[2]?.task, "B")
         XCTAssertNil(byRow[3]?.task); XCTAssertNil(byRow[5]?.task)
         XCTAssertNil(byRow[6], "뒤집힌 범위는 무시")
+        XCTAssertNil(byRow[1]?.resource, "resource 를 안 적으면 nil (반영기가 종류별 기본값을 쓴다)")
         XCTAssertEqual(patch.work[0].topics, [])
         XCTAssertEqual(patch.problems?.first?.kind, "error")
         XCTAssertEqual(patch.problems?.first?.row, 2)
@@ -272,6 +276,8 @@ final class OntologyApplierTests: XCTestCase {
         let prompt = OntologyPrompt.build(rows: rows, openTasks: [digest], now: 1_005_280)
         XCTAssertTrue(prompt.system.contains("assign_rows"))
         XCTAssertTrue(prompt.system.contains("never assigned to a task because neighbouring rows are"))
+        XCTAssertTrue(prompt.system.contains("task \"off\""), "이탈 갈래")
+        XCTAssertFalse(prompt.system.contains("캡스톤") || prompt.system.contains("기학기") || prompt.system.contains("YouTube"), "특정 사례 이름은 프롬프트에 없다")
         XCTAssertTrue(prompt.user.contains("id=t_ab12"))
         XCTAssertTrue(prompt.user.contains("코드작성"))
         XCTAssertTrue(prompt.user.contains("https://ui.shadcn.com/docs/components/card"))
@@ -367,5 +373,99 @@ final class TaskMergerTests: XCTestCase {
             XCTAssertEqual(Set(try tx.edges(from: keep.id, type: "ABOUT").compactMap { try tx.node(id: $0.dst)?.title }), ["React", "shadcn/ui"])
             XCTAssertEqual(try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM edges e LEFT JOIN nodes n ON n.id = e.src OR n.id = e.dst WHERE n.id IS NULL"), 0, "끊긴 엣지 없음")
         }
+    }
+}
+
+final class TransientPagesTests: XCTestCase {
+    func testSearchResultsBlankTabsAndLoginsAreNotResources() throws {
+        XCTAssertTrue(TransientPages.isTransient(url: "https://google.com/search?q=steno", title: "steno - Google 검색"))
+        XCTAssertTrue(TransientPages.isTransient(url: "https://www.youtube.com/results?search_query=x", title: "x - YouTube"))
+        XCTAssertTrue(TransientPages.isTransient(url: "https://github.com/new", title: "New repository"))
+        XCTAssertTrue(TransientPages.isTransient(url: "https://example.com/page", title: "제목 없음"))
+        XCTAssertTrue(TransientPages.isTransient(url: "https://console.typesafe.ai/login?error=signups_disabled", title: "TypeSafe"))
+        XCTAssertFalse(TransientPages.isTransient(url: "https://github.com/hwansoo17/Do-Reburn", title: "hwansoo17/Do-Reburn"))
+        XCTAssertFalse(TransientPages.isTransient(url: "https://eclass2.ajou.ac.kr/ultra/courses/_117144_1/outline", title: "기계학습기초"))
+        XCTAssertFalse(TransientPages.isTransient(url: "file:~/Desktop/5-1/기학기/[0922]Regression.pdf", title: "[0922]Regression.pdf"))
+
+        // 세션에 붙지 않는다 (앱 시간은 센다)
+        let db = try WGDatabase.inMemory()
+        let rows = [ActivityRow(row: 1, start: 0, end: 60, dwell: 60, app: "Google Chrome", appBundle: "com.google.Chrome", title: "steno - Google 검색",
+                                uri: "https://google.com/search?q=steno", type: "WebPage", projectKey: nil, projectTitle: nil, snippet: nil, observationIds: [1]),
+                    ActivityRow(row: 2, start: 60, end: 120, dwell: 60, app: "Google Chrome", appBundle: "com.google.Chrome", title: "Steno — AI notepad",
+                                uri: "https://stenoai.co/", type: "WebPage", projectKey: nil, projectTitle: nil, snippet: nil, observationIds: [2])]
+        let patch = try Fixtures.patch("""
+        {"tasks":[{"ref":"A","match":"new","title":"서비스명 정하기","task_type":"기타"}],"rows":[{"rows":"1-2","task":"A","resource":true}],"work":[{"task":"A","summary":"이름 조사","topics":[]}]}
+        """)
+        try db.writer.write { conn in
+            let tx = GraphTx(conn)
+            try TBox.seed(tx, at: 0)
+            let (stats, _) = try AssignmentApplier().apply(patch, rows: rows, tx: tx, now: 1_000)
+            XCTAssertEqual(stats.resources, 1)
+            XCTAssertEqual(try tx.nodes(label: NodeLabel.resource).map(\.key), ["https://stenoai.co/"])
+            XCTAssertEqual(try Row.fetchAll(conn, sql: "SELECT weight FROM edges WHERE type = 'USED'").map { $0["weight"] as Double }, [120])
+        }
+    }
+}
+
+final class ResourceDefaultTests: XCTestCase {
+    func testWhenTheLLMSaysNothingOnlyFilesAndDocumentsAreResources() {
+        func row(_ uri: String?, _ type: String?, chat: Bool = false) -> ActivityRow {
+            ActivityRow(row: 1, start: 0, end: 10, dwell: 10, app: "x", appBundle: "x", title: "t", uri: uri, type: type, projectKey: nil, projectTitle: nil,
+                        snippet: nil, observationIds: [], isChat: chat)
+        }
+        XCTAssertTrue(AssignmentApplier.defaultResource(row("file:~/a.pdf", "Document")))
+        XCTAssertTrue(AssignmentApplier.defaultResource(row("https://docs.swift.org/x", "Documentation")))
+        XCTAssertTrue(AssignmentApplier.defaultResource(row("chat:claude-code:s1", "AIChat", chat: true)))
+        XCTAssertFalse(AssignmentApplier.defaultResource(row("https://github.com/someone", "WebPage")), "그냥 웹페이지는 LLM 이 true 라고 해야 자료")
+        XCTAssertFalse(AssignmentApplier.defaultResource(row("local:3000/", "Preview")))
+    }
+
+    func testOrphanResourcesArePrunedOnRebuild() throws {
+        let db = try WGDatabase.inMemory()
+        try db.writer.write { conn in
+            let tx = GraphTx(conn)
+            try TBox.seed(tx, at: 0)
+            let kept = try tx.upsertNode(label: NodeLabel.resource, key: "https://a.example/doc", subtype: "WebPage", title: "doc", props: [:], at: 1)
+            _ = try tx.upsertNode(label: NodeLabel.resource, key: "https://b.example/profile", subtype: "WebPage", title: "profile", props: [:], at: 1)
+            let task = try tx.upsertNode(label: NodeLabel.task, key: "t", subtype: nil, title: "t", props: [:], at: 1)
+            let session = try tx.upsertNode(label: NodeLabel.session, key: "s", subtype: nil, title: "s", props: [:], at: 1)
+            try tx.upsertEdge(src: session, dst: task, type: EdgeType.partOf, props: [:], addWeight: 0, at: 1)
+            try tx.upsertEdge(src: session, dst: kept, type: EdgeType.touched, props: [:], addWeight: 5, at: 1)
+            XCTAssertEqual(try tx.pruneOrphanResources(), 1)
+            XCTAssertEqual(try tx.nodes(label: NodeLabel.resource).map(\.key), ["https://a.example/doc"])
+        }
+    }
+}
+
+final class OffTaskTests: XCTestCase {
+    func testOffTaskRowsMakeNoTaskSessionOrResourceButKeepTheirTime() throws {
+        let db = try WGDatabase.inMemory()
+        let store = EventStore(db)
+        let ids = [try store.insert(Observation(ts: 1_000, trigger: "app_activate", appBundle: "com.google.Chrome", appName: "Google Chrome", windowTitle: "docs")),
+                   try store.insert(Observation(ts: 1_060, trigger: "app_activate", appBundle: "com.google.Chrome", appName: "Google Chrome", windowTitle: "someone's profile")),
+                   try store.insert(Observation(ts: 1_120, trigger: "app_activate", appBundle: "com.google.Chrome", appName: "Google Chrome", windowTitle: "docs"))]
+        let rows = [ActivityRow(row: 1, start: 1_000, end: 1_060, dwell: 60, app: "Google Chrome", appBundle: "com.google.Chrome", title: "docs", uri: "https://docs.example/a", type: "Documentation", projectKey: nil, projectTitle: nil, snippet: nil, observationIds: [ids[0]]),
+                    ActivityRow(row: 2, start: 1_060, end: 1_120, dwell: 60, app: "Google Chrome", appBundle: "com.google.Chrome", title: "someone's profile", uri: "https://social.example/u/x", type: "WebPage", projectKey: nil, projectTitle: nil, snippet: nil, observationIds: [ids[1]]),
+                    ActivityRow(row: 3, start: 1_120, end: 1_180, dwell: 60, app: "Google Chrome", appBundle: "com.google.Chrome", title: "docs", uri: "https://docs.example/a", type: "Documentation", projectKey: nil, projectTitle: nil, snippet: nil, observationIds: [ids[2]])]
+        let patch = try Fixtures.patch("""
+        {"tasks":[{"ref":"A","match":"new","title":"문서 읽기","task_type":"문헌조사"}],
+         "rows":[{"rows":"1","task":"A","resource":true},{"rows":"2","task":"off","resource":false},{"rows":"3","task":"A","resource":true}],
+         "work":[{"task":"A","summary":"문서를 읽었다","topics":[]}]}
+        """)
+        try db.writer.write { conn in
+            let tx = GraphTx(conn)
+            try TBox.seed(tx, at: 0)
+            let (stats, assignments) = try AssignmentApplier().apply(patch, rows: rows, tx: tx, now: 2_000)
+            XCTAssertEqual(stats.offTaskRows, 1)
+            XCTAssertEqual(stats.unassignedRows, 0)
+            XCTAssertTrue(assignments[1].offTask); XCTAssertNil(assignments[1].taskId); XCTAssertFalse(assignments[1].resource)
+            for item in assignments { try EventStore.assign(conn, observationIds: item.row.observationIds, taskId: item.taskId, relevant: item.resource, offTask: item.offTask) }
+            XCTAssertEqual(try tx.nodes(label: NodeLabel.task).map(\.title), ["문서 읽기"])
+            XCTAssertEqual(try tx.nodes(label: NodeLabel.session).count, 1, "이탈은 세션이 없고, 앞뒤 문서 읽기는 한 세션")
+            XCTAssertEqual(try tx.nodes(label: NodeLabel.resource).map(\.key), ["https://docs.example/a"])
+            XCTAssertEqual(try tx.nodes(label: NodeLabel.task).first?.props["active_seconds"], 120)
+        }
+        let off = try store.offTaskSeconds(from: 0, to: 10_000)
+        XCTAssertEqual(off.map { "\($0.app) \(Int($0.seconds))" }, ["Google Chrome 60"], "이탈 시간은 행에서 집계된다")
     }
 }

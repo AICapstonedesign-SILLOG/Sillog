@@ -20,15 +20,26 @@ struct TasksView: View {
 
     var body: some View {
         HSplitView {
-            List(selection: $selectedTask) {
-                ForEach(state.taskList) { task in
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(task.title).lineLimit(1)
-                        Text("\(Self.duration(task.activeSeconds)) · 세션 \(task.sessionCount)개 · \(Self.day.string(from: Date(timeIntervalSince1970: task.lastActive)))")
-                            .font(.callout).foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                List(selection: $selectedTask) {
+                    ForEach(state.taskList) { task in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(task.title).lineLimit(1)
+                            Text("\(Self.duration(task.activeSeconds)) · 세션 \(task.sessionCount)개 · \(Self.day.string(from: Date(timeIntervalSince1970: task.lastActive)))")
+                                .font(.callout).foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 2)
+                        .tag(task.id)
                     }
-                    .padding(.vertical, 2)
-                    .tag(task.id)
+                }
+                if !state.offTaskToday.isEmpty {
+                    Divider()
+                    // 업무 외(집중 이탈): 업무·세션·자료 없이 시간만. 어떤 목표에도 기여하지 않았다고 판단된 행들
+                    let total = state.offTaskToday.reduce(0) { $0 + $1.seconds }
+                    let top = state.offTaskToday.prefix(3).map { "\($0.app) \(Self.duration($0.seconds))" }.joined(separator: ", ")
+                    Text("업무 외 오늘 \(Self.duration(total)) · \(top)")
+                        .font(.callout).foregroundStyle(.secondary).lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 8)
                 }
             }
             .frame(minWidth: 280, idealWidth: 340, maxWidth: 420)
@@ -67,7 +78,14 @@ struct TasksView: View {
                     }
                     .frame(width: 130, alignment: .leading)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(session.title).lineLimit(2)
+                        if session.summaries.isEmpty {
+                            Text(session.title).lineLimit(2)
+                        } else {
+                            ForEach(Array(session.summaries.prefix(4).enumerated()), id: \.offset) { _, line in
+                                Text("· " + line).lineLimit(2)
+                            }
+                            if session.summaries.count > 4 { Text("외 \(session.summaries.count - 4)개").font(.callout).foregroundStyle(.secondary) }
+                        }
                         Text((session.apps.joined(separator: ", ") + (session.resourceCount > 0 ? " · 자료 \(session.resourceCount)개" : "")).trimmingCharacters(in: .whitespaces))
                             .font(.callout).foregroundStyle(.secondary).lineLimit(1)
                     }

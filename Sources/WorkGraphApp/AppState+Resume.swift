@@ -17,6 +17,8 @@ struct SessionSummary: Identifiable, Equatable {
     let id: Int64
     let key: String
     let title: String
+    /// 배치마다 한 문장씩 쌓인 "한 일" (시간순)
+    let summaries: [String]
     let start: Double
     let end: Double
     let apps: [String]
@@ -44,6 +46,11 @@ extension AppState {
             .sorted { $0.lastActive > $1.lastActive }
         }) ?? []
         if fresh != taskList { taskList = fresh }
+        if let store {
+            let startOfDay = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+            let off = (try? store.offTaskSeconds(from: startOfDay, to: startOfDay + 86_400)) ?? []
+            if off.map(\.app) != offTaskToday.map(\.app) || off.map(\.seconds) != offTaskToday.map(\.seconds) { offTaskToday = off }
+        }
     }
 
     func sessions(ofTask taskId: Int64) -> [SessionSummary] {
@@ -55,7 +62,9 @@ extension AppState {
                 let apps = try tx.edges(from: node.id, type: EdgeType.used).sorted { $0.weight > $1.weight }.prefix(4)
                     .compactMap { try tx.node(id: $0.dst)?.title }.filter { $0 != "WorkGraph" && $0 != "제외된 앱" }
                 let resources = try tx.edges(from: node.id, type: EdgeType.touched).count
-                return SessionSummary(id: node.id, key: node.key, title: node.title,
+                let summaries = node.props["summaries"]?.arrayValue?.compactMap(\.stringValue)
+                    ?? [node.props["summary"]?.stringValue].compactMap { $0 }.filter { !$0.isEmpty }
+                return SessionSummary(id: node.id, key: node.key, title: node.title, summaries: summaries,
                                       start: node.props["start"]?.doubleValue ?? node.createdAt, end: node.props["end"]?.doubleValue ?? node.updatedAt,
                                       apps: apps, resourceCount: resources)
             }

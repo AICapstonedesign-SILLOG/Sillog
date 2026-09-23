@@ -11,6 +11,8 @@ public struct ApplyStats: Codable, Equatable, Sendable {
     public var uncoveredRows = 0
     /// 일이 아니라고 판단된 행 (task null)
     public var unassignedRows = 0
+    /// 어떤 목표에도 기여하지 않는 행 (집중 이탈, task "off")
+    public var offTaskRows = 0
     /// 같은 목표라서 합쳐진 업무 수 (배치 뒤 합치기 단계)
     public var tasksMerged = 0
 
@@ -47,9 +49,14 @@ public struct AssignmentApplier: Sendable {
         for row in rows {
             guard let decision = decided[row.row] else { assignments.append(RowAssignment(row: row, taskId: nil, resource: true)); continue }
             covered += 1
+            if decision.task == AssignmentPatch.offTask {
+                stats.offTaskRows += 1
+                assignments.append(RowAssignment(row: row, taskId: nil, resource: false, offTask: true, reason: decision.reason))
+                continue
+            }
             let taskId = decision.task.flatMap { taskByRef[$0] }
             if taskId == nil { stats.unassignedRows += 1 }
-            assignments.append(RowAssignment(row: row, taskId: taskId, resource: decision.resource))
+            assignments.append(RowAssignment(row: row, taskId: taskId, resource: decision.resource ?? Self.defaultResource(row), reason: decision.reason))
         }
         stats.uncoveredRows = rows.count - covered
 
@@ -120,6 +127,12 @@ public struct AssignmentApplier: Sendable {
         // 6. 업무 ↔ 프로젝트 1:1
         if assignments.contains(where: { $0.taskId != nil && $0.resource && $0.row.projectKey != nil }) { try tx.rebindProjects(at: now) }
         return (stats, assignments)
+    }
+
+    /// LLM 이 resource 를 안 적었을 때: 파일·AI 대화·문서류는 자료, 그냥 웹페이지·미리보기·메시지는 아니다
+    public static func defaultResource(_ row: ActivityRow) -> Bool {
+        if row.isChat || (row.uri?.hasPrefix("file:") ?? false) { return true }
+        return ["CodeFile", "Document", "Design", "Note", "AIChat", "Documentation", "QnA", "Paper", "Video"].contains(row.type ?? "")
     }
 
     /// existing → id 로 찾고, 못 찾으면 제목으로 찾고, 그래도 없으면 새로 만든다.

@@ -37,14 +37,17 @@ public struct AssignmentPatch: Codable, Equatable, Sendable {
         public var task: String?
         /// false 면 파일·페이지가 보이기만 했음
         public var resource: Bool?
+        /// 이 행이 그 목표에 무엇으로 기여하는지 (한 구절). 이탈이면 왜 어떤 목표에도 안 쓰이는지
+        public var reason: String?
 
-        public init(rows: String, task: String?, resource: Bool? = nil) { self.rows = rows; self.task = task; self.resource = resource }
+        public init(rows: String, task: String?, resource: Bool? = nil, reason: String? = nil) { self.rows = rows; self.task = task; self.resource = resource; self.reason = reason }
 
         public init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             rows = (try? c.lenientString(.rows)) ?? ""
             task = try? c.lenientString(.task)
             resource = try? c.decodeIfPresent(Bool.self, forKey: .resource)
+            reason = try? c.decodeIfPresent(String.self, forKey: .reason)
         }
 
         /// 범위를 행 번호 목록으로
@@ -121,12 +124,17 @@ public struct AssignmentPatch: Codable, Equatable, Sendable {
         laterItems = try? c.decodeIfPresent([LaterRef].self, forKey: .laterItems)
     }
 
-    /// 행 번호 → (업무 ref, 자료 여부). 같은 행이 두 번 나오면 뒤의 것
-    public func byRow() -> [Int: (task: String?, resource: Bool)] {
-        var result: [Int: (task: String?, resource: Bool)] = [:]
+    /// 이탈(어떤 목표에도 기여하지 않음)을 뜻하는 task 값
+    public static let offTask = "off"
+
+    /// 행 번호 → (업무 ref 또는 "off", 자료 여부: nil 이면 LLM 이 안 정한 것, 이유). 같은 행이 두 번 나오면 뒤의 것
+    public func byRow() -> [Int: (task: String?, resource: Bool?, reason: String?)] {
+        var result: [Int: (task: String?, resource: Bool?, reason: String?)] = [:]
         for ref in rows {
-            let task = ref.task.flatMap { $0.lowercased() == "null" || $0.isEmpty ? nil : $0 }
-            for number in ref.numbers { result[number] = (task, ref.resource ?? true) }
+            let raw = ref.task?.trimmingCharacters(in: .whitespaces) ?? ""
+            let task: String? = raw.isEmpty || raw.lowercased() == "null" ? nil : (raw.lowercased() == Self.offTask ? Self.offTask : raw)
+            let reason = ref.reason?.trimmingCharacters(in: .whitespacesAndNewlines)
+            for number in ref.numbers { result[number] = (task, ref.resource, (reason?.isEmpty ?? true) ? nil : reason) }
         }
         return result
     }
@@ -210,10 +218,11 @@ public enum AssignmentSchema {
                     "type": "object",
                     "properties": .object([
                         "rows": .object(["type": "string", "description": "행 번호 \"7\" 또는 범위 \"5-12\""]),
-                        "task": .object(["type": "string", "description": "tasks 의 ref. 일이 아닌 행(잠금 화면, 앱 전환, WorkGraph 자체)은 null"]),
-                        "resource": .object(["type": "boolean", "description": "false: 이 행의 파일·페이지는 보이기만 했고 이 업무의 자료가 아님 (편집기의 다른 탭, 뒤에 떠 있던 창). 생략하면 true"]),
+                        "task": .object(["type": "string", "description": "tasks 의 ref. 어떤 목표에도 기여하지 않는 행(오락, 목적 없는 탐색)은 \"off\". 아무것도 아닌 행(잠금 화면, 앱 전환, WorkGraph 자체)은 null"]),
+                        "resource": .object(["type": "boolean", "description": "이 행의 파일·페이지를 그 업무의 자료로 남길지. true: 읽거나 쓰거나 만든 것, 나중에 다시 찾을 것 (문서, 코드, 노트북, 문서 페이지, 논문, Q&A, 영상, AI 대화). false: 보이기만 한 탭·창, 검색 결과, 빈 탭, 로그인, 스쳐 간 목록·프로필·탐색 페이지, 알림·설정·사용량 페이지, 잠깐 본 채널. 애매하면 false"]),
+                        "reason": .object(["type": "string", "description": "이 행이 그 목표에 무엇으로 기여하는지 한국어 몇 단어 (예: 템플릿 문법 확인). 이탈이면 왜 어떤 목표에도 안 쓰이는지, 없음이면 '내용 없음'"]),
                     ]),
-                    "required": .array(["rows", "task"]),
+                    "required": .array(["rows", "task", "resource", "reason"]),
                 ])]),
                 "work": .object(["type": "array", "description": "쓰인 업무마다 하나", "items": .object([
                     "type": "object",
