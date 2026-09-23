@@ -13,8 +13,6 @@ public struct BatchConfig: Sendable {
     public var snippetTopN: Int = 24
     public var fetchLimit: Int = 3000
     public var maxBackoff: Double = 1800
-    /// 같은 구간에서 "쓸 수 없는 답"이 이만큼 반복되면 그 구간을 건너뛴다.
-    public var maxContentFailures: Int = 5
     /// 화면 기억 카드: 대표 화면을 멀티모달 LLM 에 보내 카드를 만들고 업무 배정의 근거로 쓴다 (LLM 이 이미지를 받을 때만)
     public var screenCards: Bool = true
     /// 같은 화면의 카드를 다시 쓰는 기간 (초)
@@ -43,7 +41,6 @@ public actor OntologyBatcher {
     private var isRunning = false
     private var failures = 0
     private var nextAllowedAt = 0.0
-    private var contentFailures: (head: Int64, count: Int) = (-1, 0)
 
     public init(db: WGDatabase, llm: any LLMClient, config: BatchConfig = BatchConfig(), home: String = NSHomeDirectory(),
                 fileExists: @escaping @Sendable (String) -> Bool = { FileManager.default.fileExists(atPath: $0) },
@@ -123,39 +120,44 @@ public actor OntologyBatcher {
         let patch = AssignmentPatch.decodeLenient(from: result.arguments)
         guard let patch, !patch.rows.isEmpty else {
             let message = "LLM 응답에 행 배정이 없음"
-            let headId = first.id ?? -1
-            contentFailures = contentFailures.head == headId ? (headId, contentFailures.count + 1) : (headId, 1)
-            let giveUp = contentFailures.count >= config.maxContentFailures
-            try recordFailure(message: giveUp ? "\(message) — \(contentFailures.count)회 반복되어 이 구간은 건너뜀" : message,
+            try recordFailure(message: message,
                               model: result.model, first: first, last: last, rowCount: rows.count, raw: result.raw, now: now,
-                              markSkipped: giveUp ? includedIds : [], tokens: (result.promptTokens, result.completionTokens), prompt: prompt)
-            if giveUp { contentFailures = (-1, 0) }
+                              tokens: (result.promptTokens, result.completionTokens), prompt: prompt)
             scheduleBackoff(now: now)
             return .failed(message)
         }
 
         // 행마다 정해진 업무를 그래프에 반영하고, 판단 원본은 원시 행에 남긴다.
-        let stats = try await db.writer.write { conn -> ApplyStats in
-            let tx = GraphTx(conn)
-            let (stats, assignments) = try AssignmentApplier().apply(patch, rows: rows, tx: tx, now: now)
-            var record = BatchRecord(startedAt: now, finishedAt: Date().timeIntervalSince1970, fromObs: first.id, toObs: last.id,
-                                     rowCount: rows.count, status: "ok", model: result.model,
-                                     promptTokens: result.promptTokens, completionTokens: result.completionTokens,
-                                     rawResponse: String(result.raw.prefix(20_000)),
-                                     stats: (try? JSONEncoder().encode(stats)).flatMap { String(data: $0, encoding: .utf8) },
-                                     systemPrompt: prompt.system, userPrompt: prompt.user,
-                                     llmPatch: patch.prettyJSON, appliedPatch: Self.describe(assignments, tx: tx))
-            try record.insert(conn)
-            let batchId = record.id ?? conn.lastInsertedRowID
-            try EventStore.mark(conn, observationIds: includedIds, batchId: batchId)
-            try EventStore.markChats(conn, ids: rows.flatMap(\.chatMessageIds), batchId: batchId)
-            for item in assignments {
-                try EventStore.assign(conn, observationIds: item.row.observationIds, taskId: item.taskId, relevant: item.resource, offTask: item.offTask, reason: item.reason)
-                try EventStore.assignChats(conn, ids: item.row.chatMessageIds, taskId: item.taskId)
+        let stats: ApplyStats
+        do {
+            stats = try await db.writer.write { conn -> ApplyStats in
+                let tx = GraphTx(conn)
+                let (stats, assignments) = try AssignmentApplier().apply(patch, rows: rows, tx: tx, now: now, requireComplete: true)
+                var record = BatchRecord(startedAt: now, finishedAt: Date().timeIntervalSince1970, fromObs: first.id, toObs: last.id,
+                                         rowCount: rows.count, status: "ok", model: result.model,
+                                         promptTokens: result.promptTokens, completionTokens: result.completionTokens,
+                                         rawResponse: String(result.raw.prefix(20_000)),
+                                         stats: (try? JSONEncoder().encode(stats)).flatMap { String(data: $0, encoding: .utf8) },
+                                         systemPrompt: prompt.system, userPrompt: prompt.user,
+                                         llmPatch: patch.prettyJSON, appliedPatch: Self.describe(assignments, tx: tx))
+                try record.insert(conn)
+                let batchId = record.id ?? conn.lastInsertedRowID
+                try EventStore.mark(conn, observationIds: includedIds, batchId: batchId)
+                try EventStore.markChats(conn, ids: rows.flatMap(\.chatMessageIds), batchId: batchId)
+                for item in assignments {
+                    try EventStore.assign(conn, observationIds: item.row.observationIds, taskId: item.taskId, relevant: item.resource, offTask: item.offTask, reason: item.reason)
+                    try EventStore.assignChats(conn, ids: item.row.chatMessageIds, taskId: item.taskId)
+                }
+                return stats
             }
-            return stats
+        } catch {
+            let message = "행 배정 반영 실패: \(error)"
+            try recordFailure(message: message, model: result.model, first: first, last: last, rowCount: rows.count,
+                              raw: result.raw, now: now, tokens: (result.promptTokens, result.completionTokens), prompt: prompt)
+            scheduleBackoff(now: now)
+            return .failed(message)
         }
-        failures = 0; nextAllowedAt = 0; contentFailures = (-1, 0)
+        failures = 0; nextAllowedAt = 0
         // 새 업무가 생겼으면 제목만 다른 같은 목표가 아닌지 LLM 에 묻는다 (합치기)
         if stats.tasksCreated > 0 {
             var merged = stats
@@ -253,7 +255,7 @@ public actor OntologyBatcher {
     }
 
     private func recordFailure(message: String, model: String, first: Observation, last: Observation, rowCount: Int,
-                               raw: String?, now: Double, markSkipped: [Int64] = [], tokens: (Int, Int) = (0, 0),
+                               raw: String?, now: Double, tokens: (Int, Int) = (0, 0),
                                prompt: (system: String, user: String)? = nil) throws {
         try db.writer.write { conn in
             var record = BatchRecord(startedAt: now, finishedAt: Date().timeIntervalSince1970, fromObs: first.id, toObs: last.id,
@@ -262,9 +264,6 @@ public actor OntologyBatcher {
                                      rawResponse: raw.map { String($0.prefix(20_000)) },
                                      systemPrompt: prompt?.system, userPrompt: prompt?.user)
             try record.insert(conn)
-            if !markSkipped.isEmpty {
-                try EventStore.mark(conn, observationIds: markSkipped, batchId: record.id ?? conn.lastInsertedRowID)
-            }
         }
     }
 
