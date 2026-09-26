@@ -17,6 +17,8 @@ final class AppState: ObservableObject {
     @Published var recent: [Observation] = []
     @Published var batches: [BatchRecord] = []
     @Published var llmTestResult: String?
+    @Published var chatTestResult: String?
+    @Published var chatTesting = false
     @Published var startupError: String?
     @Published var codexStatus: CodexAuthStatus = .loggedOut
     /// 로그인 진행 중일 때만 값이 있다. 화면에 코드와 안내를 보여준다.
@@ -36,6 +38,7 @@ final class AppState: ObservableObject {
     @Published var offTaskToday: [(app: String, seconds: Double)] = []
     @Published var resumeRequest: ResumeRequest?
     @Published var bootstrapped = false
+    @Published var chat: ChatState?
 
     let databasePath = WGDatabase.defaultPath()
     private(set) var db: WGDatabase?
@@ -70,6 +73,7 @@ final class AppState: ObservableObject {
             self.db = database
             self.store = store
             self.coordinator = coordinator
+            self.chat = ChatState(db: database, makeClient: { [unowned self] in self.makeChatClient() })
             let batcher = OntologyBatcher(db: database, llm: makeClient())
             self.batcher = batcher
             let cardsOn = settings.screenCards && settings.captureScreenshots
@@ -117,6 +121,7 @@ final class AppState: ObservableObject {
     private func startServices() {
         guard !servicesRunning, let coordinator else { return }
         servicesRunning = true
+        chat?.startScheduler()
         notifier.checkStatus()
         start(coordinator)
     }
@@ -124,6 +129,7 @@ final class AppState: ObservableObject {
     private func stopServices() {
         guard servicesRunning else { return }
         servicesRunning = false
+        chat?.stop()
         tasks.forEach { $0.cancel() }
         tasks = []
         let coordinator = self.coordinator
@@ -178,6 +184,32 @@ final class AppState: ObservableObject {
         settings.llmProvider == "openai" ? makeOpenAIClient() : CodexResponsesClient(auth: codexAuth, model: settings.codexModel, reasoningEffort: "low")
     }
 
+    /// Args: 없음.
+    /// Returns: 정리용 설정과 분리된 채팅 전용 연결.
+    /// Raises: 없음. 인증·연결 오류는 실제 요청 시 전달된다.
+    private func makeChatClient() -> ChatBackend {
+        if settings.chatProvider == "openai" {
+            let url = URL(string: settings.chatBaseURL.trimmingCharacters(in: .whitespaces)) ?? URL(string: "http://localhost:5010/v1")!
+            return .model(OpenAICompatClient(baseURL: url, model: settings.chatModel, apiKey: settings.chatAPIKey.isEmpty ? nil : settings.chatAPIKey))
+        }
+        return .codex(CodexAppServerClient(auth: codexAuth, model: settings.chatCodexModel))
+    }
+
+    /// Args: 없음.
+    /// Returns: 없음. 개인 자료 없이 실제 채팅 스트림과 도구 호출을 검사한다.
+    /// Raises: 없음. 연결·프로토콜 오류는 설정 화면에 표시한다.
+    func testChatLLM() async {
+        guard !chatTesting else { return }
+        chatTesting = true; chatTestResult = "채팅 연결 확인 중…"
+        defer { chatTesting = false }
+        do {
+            try await makeChatClient().checkChatConnection()
+            chatTestResult = "연결됨 · 응답과 도구 호출 확인"
+        } catch {
+            chatTestResult = (error as? LLMError)?.description ?? error.localizedDescription
+        }
+    }
+
     // MARK: ChatGPT 로그인
 
     /// 서버가 로그인을 폐기했으면(계정에서 Codex 연결 해제 등) 토큰이 지워져 있다. 그때는 수집을 멈추고 로그인 화면을 띄운다.
@@ -210,6 +242,10 @@ final class AppState: ObservableObject {
         codexModels = models
         if !models.contains(where: { $0.slug == settings.codexModel }) {
             settings.codexModel = models.first { $0.slug == CodexResponsesClient.defaultModel }?.slug ?? models[0].slug
+            applySettings()
+        }
+        if !models.contains(where: { $0.slug == settings.chatCodexModel }) {
+            settings.chatCodexModel = models.first { $0.slug == CodexResponsesClient.defaultModel }?.slug ?? models[0].slug
             applySettings()
         }
     }

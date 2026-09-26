@@ -3,7 +3,7 @@ import WorkGraphCore
 
 struct MainWindow: View {
     enum Tab: String, CaseIterable, Identifiable {
-        case graph = "그래프", tasks = "업무", files = "파일", activity = "활동 로그", settings = "설정"
+        case graph = "그래프", tasks = "업무", files = "파일", activity = "활동 로그", chat = "채팅", settings = "설정"
         var id: String { rawValue }
     }
 
@@ -16,6 +16,7 @@ struct MainWindow: View {
         case "tasks": return .tasks
         case "settings": return .settings
         case "graph": return .graph
+        case "chat": return .chat
         default: return .graph                                   // 권한·로그인 안내는 온보딩이 맡는다
         }
     }()
@@ -33,6 +34,9 @@ struct MainWindow: View {
                 case .tasks: TasksView()
                 case .files: FilesView()
                 case .activity: ActivityLogView()
+                case .chat: if let chat = state.chat {
+                    ChatView(chat: chat, modelName: state.settings.chatModelName, openSettings: { state.selectedTab = .settings })
+                }
                 case .settings: SettingsView()
                 }
             }
