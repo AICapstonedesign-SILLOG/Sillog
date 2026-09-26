@@ -127,9 +127,10 @@ public struct EventStore: Sendable {
     // MARK: AI 대화 기록
 
     /// 같은 (도구, 세션, 시각) 메시지는 한 번만 저장한다. 새로 들어간 개수를 돌려준다.
+    /// 읽기 위치도 전달되면 메시지와 같은 트랜잭션에서 갱신한다.
     @discardableResult
-    public func insertChatMessages(_ messages: [ChatMessage]) throws -> Int {
-        guard !messages.isEmpty else { return 0 }
+    public func insertChatMessages(_ messages: [ChatMessage], cursors: [String: Int64] = [:]) throws -> Int {
+        guard !messages.isEmpty || !cursors.isEmpty else { return 0 }
         return try db.writer.write { conn in
             var inserted = 0
             for message in messages {
@@ -137,6 +138,10 @@ public struct EventStore: Sendable {
                     INSERT OR IGNORE INTO chat_messages(ts, tool, session_id, cwd, text, ingested_at) VALUES (?, ?, ?, ?, ?, ?)
                     """, arguments: [message.ts, message.tool, message.sessionId, message.cwd, message.text, message.ingestedAt])
                 inserted += conn.changesCount
+            }
+            for (path, offset) in cursors {
+                try conn.execute(sql: "INSERT INTO chat_cursors(path, offset) VALUES (?, ?) ON CONFLICT(path) DO UPDATE SET offset = excluded.offset",
+                                 arguments: [path, offset])
             }
             return inserted
         }

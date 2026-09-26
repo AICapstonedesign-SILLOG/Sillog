@@ -65,31 +65,39 @@ public final class ChatLogWatcher: @unchecked Sendable {
     func scanAll() {
         let since = Date().timeIntervalSince1970 - Self.backfillWindow
         var batch: [ChatMessage] = []
-        for path in recentFiles(under: claudeRoot, suffix: ".jsonl", modifiedAfter: since) {
-            batch += ChatLogReader.parseClaude(lines: newLines(of: path)).filter { $0.ts >= since }
-        }
-        if FileManager.default.fileExists(atPath: codexHistory) {
-            let lines = newLines(of: codexHistory)
-            if !lines.isEmpty { refreshCodexCwdMap() }
-            batch += ChatLogReader.parseCodexHistory(lines: lines, cwdBySession: codexCwdBySession).filter { $0.ts >= since }
-        }
-        guard !batch.isEmpty else { return }
-        if let inserted = try? store.insertChatMessages(batch), inserted > 0 {
-            ingestedTotal += inserted
-            AppLog.write("AI 대화 \(inserted)건 읽음 (Claude Code / Codex CLI)")
+        var cursors: [String: Int64] = [:]
+        do {
+            for path in recentFiles(under: claudeRoot, suffix: ".jsonl", modifiedAfter: since) {
+                guard let read = try newLines(of: path) else { continue }
+                batch += ChatLogReader.parseClaude(lines: read.lines).filter { $0.ts >= since }
+                cursors[path] = read.offset
+            }
+            if let read = try newLines(of: codexHistory) {
+                refreshCodexCwdMap()
+                batch += ChatLogReader.parseCodexHistory(lines: read.lines, cwdBySession: codexCwdBySession).filter { $0.ts >= since }
+                cursors[codexHistory] = read.offset
+            }
+            let inserted = try store.insertChatMessages(batch, cursors: cursors)
+            if inserted > 0 {
+                ingestedTotal += inserted
+                AppLog.write("AI 대화 \(inserted)건 읽음 (Claude Code / Codex CLI)")
+            }
+        } catch {
+            AppLog.write("AI 대화 저장 실패: \(error)")
+            scheduleScan()
         }
     }
 
     /// 지난번에 읽은 위치 다음부터 새 줄만. 파일이 줄어들었으면(교체됨) 처음부터.
-    private func newLines(of path: String) -> [String] {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return [] }
+    private func newLines(of path: String) throws -> (lines: [String], offset: Int64)? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
         defer { try? handle.close() }
-        let size = (try? handle.seekToEnd()) ?? 0
-        var offset = (try? store.chatCursor(path: path)).flatMap { $0 }.map { UInt64($0) } ?? 0
+        let size = try handle.seekToEnd()
+        var offset = UInt64(try store.chatCursor(path: path) ?? 0)
         if offset > size { offset = 0 }
-        guard offset < size else { return [] }
-        try? handle.seek(toOffset: offset)
-        guard let data = try? handle.readToEnd(), !data.isEmpty else { return [] }
+        guard offset < size else { return nil }
+        try handle.seek(toOffset: offset)
+        guard let data = try handle.readToEnd(), !data.isEmpty else { return nil }
         // 마지막 줄이 아직 쓰는 중이면(개행 없음) 다음에 읽는다
         var complete = data
         var consumed = data.count
@@ -97,10 +105,10 @@ public final class ChatLogWatcher: @unchecked Sendable {
             complete = data[data.startIndex...lastNewline]
             consumed = complete.count
         } else if data.last != UInt8(ascii: "\n") {
-            return []
+            return nil
         }
-        try? store.setChatCursor(path: path, offset: Int64(offset) + Int64(consumed))
-        return String(decoding: complete, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        return (String(decoding: complete, as: UTF8.self).split(separator: "\n", omittingEmptySubsequences: true).map(String.init),
+                Int64(offset) + Int64(consumed))
     }
 
     private func recentFiles(under root: String, suffix: String, modifiedAfter: Double) -> [String] {

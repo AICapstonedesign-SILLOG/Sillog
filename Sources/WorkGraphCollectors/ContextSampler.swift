@@ -8,11 +8,13 @@ public struct ContextSnapshot: Equatable, Sendable {
     public var url: String?
     public var docPath: String?
     public var pid: Int32
+    public var windowFrame: CGRect? = nil
 
-    /// pid 는 빼고 비교한다 (같은 앱을 다시 띄워도 같은 컨텍스트).
+    /// 수집 도중 프로세스나 창이 바뀌었으면 이전 관찰에 붙이지 않는다.
     public func sameContext(as other: ContextSnapshot?) -> Bool {
         guard let other else { return false }
-        return appBundle == other.appBundle && windowTitle == other.windowTitle && url == other.url && docPath == other.docPath
+        return pid == other.pid && windowFrame == other.windowFrame && appBundle == other.appBundle
+            && windowTitle == other.windowTitle && url == other.url && docPath == other.docPath
     }
 }
 
@@ -37,6 +39,7 @@ public final class ContextSampler: @unchecked Sendable {
         guard let window = axFocusedWindow(of: element) else { return snapshot }
 
         snapshot.windowTitle = axString(window, kAXTitleAttribute as String)
+        snapshot.windowFrame = axWindowFrame(window)
         if let document = axString(window, kAXDocumentAttribute as String) {
             if BrowserURL.isHTTP(document) {
                 snapshot.url = document

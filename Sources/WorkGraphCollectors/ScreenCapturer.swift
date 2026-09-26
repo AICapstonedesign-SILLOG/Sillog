@@ -8,18 +8,21 @@ import UniformTypeIdentifiers
 public struct ScreenCapturer: Sendable {
     public init() {}
 
-    public func capture(excluding privacy: PrivacyFilter, maxWidth: Int = 1600) async -> CGImage? {
-        guard CGPreflightScreenCaptureAccess() else { return nil }
+    public func capture(snapshot: ContextSnapshot, excluding privacy: PrivacyFilter, maxWidth: Int = 1600) async -> CGImage? {
+        guard CGPreflightScreenCaptureAccess(), let frame = snapshot.windowFrame,
+              !privacy.isExcluded(bundle: snapshot.appBundle), !privacy.isPrivateWindow(title: snapshot.windowTitle) else { return nil }
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-            let mainID = CGMainDisplayID()
-            guard let display = content.displays.first(where: { $0.displayID == mainID }) ?? content.displays.first else { return nil }
-            let hidden = content.applications.filter { privacy.isExcluded(bundle: $0.bundleIdentifier) }
-            let filter = SCContentFilter(display: display, excludingApplications: hidden, exceptingWindows: [])
+            let matches = content.windows.filter {
+                $0.owningApplication?.processID == snapshot.pid && $0.title == snapshot.windowTitle && $0.frame == frame
+            }
+            // 창을 하나로 특정하지 못하면 전체 화면으로 대체하지 않는다.
+            guard matches.count == 1, let window = matches.first else { return nil }
+            let filter = SCContentFilter(desktopIndependentWindow: window)
             let config = SCStreamConfiguration()
-            let scale = min(1.0, Double(maxWidth) / Double(max(display.width, 1)))
-            config.width = max(2, Int(Double(display.width) * scale) / 2 * 2)
-            config.height = max(2, Int(Double(display.height) * scale) / 2 * 2)
+            let scale = min(1.0, Double(maxWidth) / max(frame.width, 1))
+            config.width = max(2, Int(frame.width * scale) / 2 * 2)
+            config.height = max(2, Int(frame.height * scale) / 2 * 2)
             config.showsCursor = false
             return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
         } catch {

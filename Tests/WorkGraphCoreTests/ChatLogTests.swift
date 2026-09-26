@@ -74,6 +74,23 @@ final class ChatLogTests: XCTestCase {
         XCTAssertEqual(try store.chatCursor(path: "/x.jsonl"), 1234)
         XCTAssertNil(try store.chatCursor(path: "/y.jsonl"))
     }
+
+    func testMessagesAndCursorCommitTogether() throws {
+        let db = try WGDatabase.inMemory()
+        let store = EventStore(db)
+        let message = ChatMessage(ts: 100, tool: "codex-cli", sessionId: "s1", cwd: nil, text: "질문")
+        try db.writer.write { conn in
+            try conn.execute(sql: "CREATE TEMP TRIGGER fail_cursor BEFORE INSERT ON chat_cursors BEGIN SELECT RAISE(ABORT, 'test'); END")
+        }
+        XCTAssertThrowsError(try store.insertChatMessages([message], cursors: ["/test.jsonl": 100]))
+        XCTAssertTrue(try store.chatMessages(from: 0, to: 200).isEmpty)
+        XCTAssertNil(try store.chatCursor(path: "/test.jsonl"))
+        try db.writer.write { try $0.execute(sql: "DROP TRIGGER fail_cursor") }
+        XCTAssertEqual(try store.insertChatMessages([message], cursors: ["/test.jsonl": 100]), 1)
+        XCTAssertEqual(try store.chatCursor(path: "/test.jsonl"), 100)
+        XCTAssertEqual(try store.insertChatMessages([], cursors: ["/test.jsonl": 200]), 0)
+        XCTAssertEqual(try store.chatCursor(path: "/test.jsonl"), 200)
+    }
 }
 
 final class ChatRowTests: XCTestCase {

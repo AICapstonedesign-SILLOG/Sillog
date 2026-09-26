@@ -55,7 +55,7 @@ final class OntologyBatcherTests: XCTestCase {
     func testSkipsWhenNothingToDoOrTooYoung() async throws {
         let db = try WGDatabase.inMemory()
         let clock = TestClock(200)
-        let llm = StubLLM([.success(patch)])
+        let llm = StubLLM([.success(patch.replacingOccurrences(of: "1-2", with: "1-3"))])
         let batcher = makeBatcher(db, llm, clock)
         guard case .skipped = await batcher.runIfDue(force: false) else { return XCTFail("미처리 없음이면 skipped") }
 
@@ -102,7 +102,7 @@ final class OntologyBatcherTests: XCTestCase {
         let db = try WGDatabase.inMemory()
         _ = try seed(db)
         let clock = TestClock(450)
-        let llm = StubLLM([.failure(.http(500, "token invalid")), .success(patch)])
+        let llm = StubLLM([.failure(.http(500, "token invalid")), .success(patch.replacingOccurrences(of: "1-2", with: "1-3"))])
         let batcher = makeBatcher(db, llm, clock)
 
         guard case .failed(let message) = await batcher.runIfDue(force: false) else { return XCTFail("실패여야 함") }
@@ -136,7 +136,7 @@ final class OntologyBatcherTests: XCTestCase {
         XCTAssertEqual(llm.calls, 1)
     }
 
-    func testUnusableAnswersEventuallySkipTheWindow() async throws {
+    func testUnusableAnswersRemainPendingAfterRepeatedFailures() async throws {
         let db = try WGDatabase.inMemory()
         _ = try seed(db)
         let clock = TestClock(450)
@@ -147,6 +147,28 @@ final class OntologyBatcherTests: XCTestCase {
             clock.now += 4000
         }
         XCTAssertEqual(llm.calls, 5)
-        XCTAssertTrue(try EventStore(db).unprocessed(limit: 10).isEmpty, "다섯 번 실패한 구간은 건너뛰어 뒤 데이터가 막히지 않게 한다")
+        XCTAssertEqual(try EventStore(db).unprocessed(limit: 10).count, 3)
+    }
+
+    func testIncompleteAssignmentsRollBackAndCanBeRetried() async throws {
+        let invalid = [
+            patch.replacingOccurrences(of: "1-2", with: "1"),
+            patch.replacingOccurrences(of: "1-2", with: "1-4"),
+            patch.replacingOccurrences(of: "\"task\":\"A\"", with: "\"task\":\"unknown\""),
+            #"{"tasks":[],"rows":[{"rows":"1-2","task":null},{"rows":"2","task":null}],"work":[]}"#,
+        ]
+        for response in invalid {
+            let db = try WGDatabase.inMemory()
+            _ = try seed(db)
+            let clock = TestClock(450)
+            let batcher = makeBatcher(db, StubLLM([.success(response), .success(patch.replacingOccurrences(of: "1-2", with: "1-3"))]), clock)
+            guard case .failed = await batcher.runIfDue(force: false) else { return XCTFail("불완전한 배정은 실패") }
+            XCTAssertEqual(try EventStore(db).unprocessed(limit: 10).count, 3)
+            let tasks = try await db.writer.read { try GraphTx($0).nodes(label: "Task") }
+            XCTAssertTrue(tasks.isEmpty, "실패한 응답이 만든 업무도 롤백")
+            clock.now = 510
+            guard case .ok = await batcher.runIfDue(force: false) else { return XCTFail("정상 응답은 재시도 성공") }
+            XCTAssertTrue(try EventStore(db).unprocessed(limit: 10).isEmpty)
+        }
     }
 }

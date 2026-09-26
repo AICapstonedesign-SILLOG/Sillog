@@ -40,3 +40,12 @@ func axFocusedWindow(of app: AXUIElement) -> AXUIElement? {
         ?? axElement(app, kAXMainWindowAttribute as String)
         ?? (axCopy(app, kAXWindowsAttribute as String) as? [AXUIElement])?.first
 }
+
+func axWindowFrame(_ window: AXUIElement) -> CGRect? {
+    guard let position = axCopy(window, kAXPositionAttribute as String), CFGetTypeID(position) == AXValueGetTypeID(),
+          let size = axCopy(window, kAXSizeAttribute as String), CFGetTypeID(size) == AXValueGetTypeID() else { return nil }
+    var point = CGPoint.zero, dimensions = CGSize.zero
+    guard AXValueGetValue(position as! AXValue, .cgPoint, &point),
+          AXValueGetValue(size as! AXValue, .cgSize, &dimensions) else { return nil }
+    return CGRect(origin: point, size: dimensions)
+}
