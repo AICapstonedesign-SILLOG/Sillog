@@ -5,7 +5,7 @@ import Foundation
 public final class OpenAICompatClient: LLMClient, @unchecked Sendable {
     public let baseURL: URL
     public let model: String
-    let apiKey: String?
+    public let apiKey: String?
     let timeout: TimeInterval
     let session: URLSession
 
