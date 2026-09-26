@@ -11,9 +11,11 @@ nodes / edges (같은 SQLite 파일, 프로퍼티 그래프)  →  그래프 뷰
 ## 빠른 시작
 
 ```bash
-./scripts/make-app.sh          # release 빌드 → build/WorkGraph.app → 서명
+./scripts/make-app.sh          # release 빌드 → 서명 → build/WorkGraph.app
 open build/WorkGraph.app
 ```
+
+빌드 캐시와 서명된 앱은 기본적으로 시스템 임시 폴더에 두고 `build/WorkGraph.app`에서 연결한다. `Documents`의 File Provider 메타데이터가 서명을 깨는 문제를 피하기 위해서다. 위치를 바꾸려면 `WORKGRAPH_BUILD_DIR`을 지정한다. 임시 폴더가 정리되면 다시 빌드하면 된다.
 
 - 처음 실행하면 온보딩이 뜬다. **ChatGPT 로그인을 해야 쓸 수 있다.** 로그인 전에는 아무것도 기록하지 않고, 메뉴바에도 "시작하기"만 보인다
   1. 로그인: 코드가 뜨고 브라우저가 열린다 → 코드 입력 → 자동으로 다음 단계
@@ -27,9 +29,39 @@ open build/WorkGraph.app
 - 권한이 없어도 앱 이름은 기록된다. 허용하면 창 제목, URL, 문서 경로, 화면 텍스트, 스크린샷이 붙는다
 - 서명 인증서가 고정돼 있어야 다시 빌드해도 권한이 유지된다 (스크립트가 `Capstone Prototype Dev` → `Apple Development` → ad-hoc 순으로 고름)
 
+## 채팅: 내 기록과 자료로 작업하기
+
+채팅 탭에서 수집한 기록을 조회하거나 연결한 저장소·문서를 읽고, 결과물을 만든다.
+
+1. **자료 연결**에서 읽을 파일이나 저장소 폴더를 선택한다. 기록에 경로가 나타나더라도 연결하지 않은 파일은 읽지 않는다.
+2. 입력창 아래에서 **문서 작성 / 리서치 / 기획·계획 / 학습 / 콘텐츠 제작 / 작업 자동화**를 선택한다. 자동 선택도 가능하다.
+3. 요청을 입력하고 **Enter**로 보낸다. **Shift+Enter**는 줄바꿈이며, 한글 조합 중 Enter는 조합만 확정한다. 복잡한 작업은 활동 조사·코드 조사·리서치·근거 검토 에이전트에 나누어 맡긴다.
+4. 답변의 **조회한 출처**에서 근거를 확인하고, 결과물을 눌러 미리보기·원본 형식 저장·PDF 내보내기를 한다.
+
+- **내 활동 기록**: 업무·세션·그래프 관계, 화면 요약·원문, AI 코딩 도구에 입력한 요청을 검색한다. 방문·요청과 실제 완료·기여를 구분하도록 지침을 적용한다.
+- **웹 검색·플러그인**: 입력창의 `자료`에서 대화별로 켠다. Codex 채팅은 App Server의 웹 검색을, 공식 OpenAI API 채팅은 Responses API의 `web_search`를 사용한다. 다른 OpenAI 호환 서버의 웹 검색은 지원하지 않는다. 채팅 사이드바의 `플러그인`에서 Gmail, Google Drive, GitHub, Notion을 살펴보고 계정을 연결한다. 선택한 플러그인은 채팅에서 검색·읽기만 가능하며 메일 발송·파일 수정은 지원하지 않는다. OAuth 토큰은 macOS Keychain에 저장한다.
+- 연결한 자료 중 조회한 내용은 **설정된 LLM으로 전송된다**. 외부 검색을 켜면 검색어·조회 URL은 외부 서비스에도 전달된다. 범위를 바꾸어도 이전 대화 본문은 유지되므로, 이전 자료를 사용하지 않으려면 새 대화를 시작한다.
+- 파일 조회는 연결 범위 밖 경로와 일반적인 인증 파일을 차단한다. PDF는 텍스트 추출을 지원하며, 스캔 PDF의 OCR이나 DOCX/PPTX 읽기·쓰기는 아직 지원하지 않는다.
+- 결과물은 요청에 따라 Markdown·HTML·CSV·JSON·TXT로 저장할 수 있다. HTML 미리보기와 내보내기는 스크립트·외부 리소스를 차단한다. 이미지·영상 생성, 웹 게시, 임의 명령 실행은 지원하지 않는다.
+- **작업 자동화**: 반복할 조사·보고서와 시간 간격을 요청하면 예약안을 제안한다. 사용자가 내용을 확인하고 **등록**을 눌러야 실행된다. 앱 실행 중에만 동작하고, 종료·절전 중 누락된 실행은 한 번만 처리한다. 실행 결과는 별도 대화에 남으며 `예약 작업`에서 중지할 수 있다. 원본 파일 변경이나 메시지 발송은 하지 않는다.
+- 설정의 **정리에 쓰는 LLM**과 **채팅에 쓰는 LLM**은 연결 방식·모델·서버·API 키를 각각 저장한다. ChatGPT 로그인 계정은 공유한다. 기존 설정은 처음 한 번 채팅 설정에 복사되며, 이후 한쪽을 변경해도 다른 쪽은 바뀌지 않는다.
+- Codex 채팅에는 **Codex 데스크톱 앱 또는 최신 Codex CLI**가 필요하다. 데스크톱 앱에 포함된 실행 파일을 우선 사용한다. 앱의 로그인으로 독립된 App Server를 실행하며 사용자 Codex 설정·MCP·플러그인은 공유하지 않는다. 코드·파일은 선택한 경로를 검사하는 앱 도구로 읽고, 셸 실행은 허용하지 않는다. 외부 검색을 끄면 Codex 웹 검색도 비활성화된다. [App Server 공식 문서](https://developers.openai.com/codex/app-server).
+- OpenAI 호환 채팅에는 **스트리밍과 도구 호출을 지원하는 모델·서버**가 필요하다. `채팅 연결 확인`은 개인 자료 없이 도구 호출과 후속 답변을 실제 검사한다. OpenAI 호환 실행은 최대 24회 모델 호출, Codex 실행은 최대 24개 에이전트 실행과 실행별 32회 앱 도구 호출로 제한한다. 중단 버튼으로 취소할 수 있으며, 일반 연결 오류는 앱에서 자동 재시도하지 않는다.
+- 대화·결과물·예약은 `app_conversations`, `app_messages`, `app_automations`에 저장한다. 외부 코딩 도구의 `chat_messages`와는 별개다. 스킬 지침은 `Sources/WorkGraphCore/Chat/Skills`에 있다.
+
+### 플러그인 OAuth 앱 준비
+
+ChatGPT에 연결한 플러그인의 권한은 WorkGraph로 복사되지 않는다. 사용자는 채팅의 `플러그인` 목록에서 설치하고 각 서비스의 계정 승인 화면을 거친다. OAuth 앱 등록 정보는 사용자 화면에 입력하지 않고 앱 제공자가 준비한다. 등록 정보가 없는 플러그인은 설치를 누르면 준비되지 않았다는 안내를 표시하며, 연결된 것처럼 보이지 않는다.
+
+- Gmail·Google Drive: [Google Cloud에서 데스크톱 OAuth 클라이언트](https://developers.google.com/identity/protocols/oauth2/native-app)를 만들고 빌드할 때 `WORKGRAPH_GOOGLE_CLIENT_ID`를 설정한다. 사용자는 Gmail·Drive 중 필요한 항목만 고르고 Google에서 한 번 승인한다.
+- GitHub: [GitHub App](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app)을 만들고 디바이스 인증을 켠다. 저장소 Contents와 Pull requests를 읽기 권한으로 설정하고 빌드할 때 `WORKGRAPH_GITHUB_CLIENT_ID`를 설정한다. 사용자는 표시된 코드를 GitHub 승인 페이지에 입력한다. 만료 토큰 자동 갱신에는 별도 서버에 보관한 앱 비밀키가 필요하므로, 서버가 없는 배포에서는 다시 연결해야 한다.
+- Notion: [공개 통합](https://developers.notion.com/guides/get-started/authorization)을 만들고 콜백 URL을 `http://127.0.0.1:8765/callback`으로 등록한다. `WORKGRAPH_NOTION_CLIENT_ID`와 토큰 교환용 비밀키가 필요하다. 비밀키를 배포 앱에 넣어서는 안 되며, 현재는 개발 환경의 `WORKGRAPH_NOTION_CLIENT_SECRET` 또는 이전 Keychain 설정에서만 읽는다. 실제 배포에는 서버 측 토큰 교환이 추가로 필요하다. 통합에 공유된 페이지만 검색된다.
+
+Google·Notion 승인은 앱이 실행 중일 때 로컬 포트 8765를 사용한다. 공급자 앱 등록·검증 절차를 마치기 전에는 실제 로그인과 비공개 자료 조회를 사용할 수 없다.
+
 ## LLM 연결 (앱 안에서 ChatGPT 로그인)
 
-프록시 없이 앱이 Codex 백엔드를 직접 부른다. ChatGPT 구독 계정만 있으면 된다.
+정리 기능은 프록시 없이 Codex 백엔드를 직접 부른다. 채팅은 설치된 Codex의 App Server를 사용한다. 두 기능은 앱의 ChatGPT 로그인을 공유한다.
 
 - 앱: 온보딩 첫 화면의 **ChatGPT 로 로그인**. 코드가 뜨고 브라우저가 열린다 → 코드 입력 → 자동으로 로그인됨 (코드는 클립보드에도 복사됨). 로그아웃은 설정 탭
 - 터미널: `swift run wgctl codex-login` → `codex-status` / `codex-models` / `codex-logout`
@@ -170,7 +202,8 @@ SELECT n.label, n.title FROM reach JOIN nodes n ON n.id = reach.id;
 |---|---|
 | `Sources/WorkGraphCore` | 순수 로직. DB, uri 정규화, 규칙 분류, 압축, LLM 클라이언트(ChatGPT 로그인 · OpenAI 호환), 반영기, 배치, 내보내기, 파일 정리 제안(`Files/`: 폴더 색인 → 후보 순위 → LLM 선택 → 이동·되돌리기). 권한 없이 테스트됨 |
 | `Sources/WorkGraphCollectors` | macOS 수집기. 접근성 API, ScreenCaptureKit, Vision OCR, FSEvents, 유휴 감지 |
-| `Sources/WorkGraphApp` | 메뉴바 앱 + 창(그래프 / 파일 / 활동 로그 / 설정). 그래프 화면은 `Resources/graph` 의 HTML·JS. 파일 정리 제안의 알림·이동은 `AppState+Files`, `SuggestionNotifier` |
+| `Sources/WorkGraphApp` | 메뉴바 앱 + 창(그래프 / 업무 / 파일 / 활동 로그 / 채팅 / 설정). 그래프 화면은 `Resources/graph` 의 HTML·JS. 파일 정리 제안의 알림·이동은 `AppState+Files`, `SuggestionNotifier`. 채팅 상태·예약은 `Chat/ChatState`, 화면은 `Views/ChatView` |
+| `Sources/WorkGraphCore/Chat` | 채팅 저장, 컨텍스트 검색, LLM 스트리밍, 도구 실행·하위 에이전트, 여섯 스킬과 결과물 HTML 변환 |
 | `Sources/wgctl` | 개발용 CLI. `swift run wgctl` 로 도움말 |
 | `docs/superpowers/specs` | 설계 문서 (그래프 DB 선정 이유 포함) |
 
@@ -182,7 +215,7 @@ SELECT n.label, n.title FROM reach JOIN nodes n ON n.id = reach.id;
 - 묶기·고르기(`KeyframeSelector`): 같은 앱·제목·주소이고 해시가 가까운 사진은 한 화면. 5초 이상 머문 화면의 가운데 사진을 대표로, 한 호출에 최대 12장. 최근 24시간에 같은 화면 카드가 있으면 재사용
 - 카드(`screen_cards`): 무엇을 했나(한 문장), 화면 내용(2~6줄: 제목, 핵심 문장, 수치, 코드 이름, 에러), 화면 종류, 이름 붙은 것들(문서·사람·코드·에러·수치·링크). 사실만, 업무 판정 없음. 원시 행에 `card_id`. FTS5 trigram 색인(한국어 부분 문자열). DBeaver 뷰 `v_cards`
 - 업무 배정 프롬프트는 카드가 있는 행에 `text:` 대신 `screen:`(카드 내용)을 넣는다
-- 검색 기능은 아직 없다. 카드가 잘 쌓여 있으면 나중에 LLM 이 읽어 답하면 된다
+- 채팅 탭에서 화면 카드와 원문을 검색하고 답변의 근거로 활용한다
 - 설정 → "화면 내용 기록 (스크린샷을 LLM에 보냄)"으로 끌 수 있다. CLI: `wgctl cards --last 20`, 예전 스크린샷 해시 채우기 `wgctl backfill-screen-hash`
 - 설계: `docs/superpowers/specs/2026-09-23-screen-memory-cards-design.md`
 

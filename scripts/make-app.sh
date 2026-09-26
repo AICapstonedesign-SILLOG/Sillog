@@ -8,14 +8,27 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-swift build -c release --product WorkGraphApp
-BIN_DIR="$(swift build -c release --show-bin-path)"
-APP="$ROOT/build/WorkGraph.app"
+# Documents의 동기화 파일 때문에 SwiftPM 의존성 체크아웃이 멈추지 않도록 임시 빌드 경로를 쓴다.
+BUILD_DIR="${WORKGRAPH_BUILD_DIR:-${TMPDIR:-/tmp}/WorkGraph-swift-build}"
+mkdir -p "$BUILD_DIR/cache" "$BUILD_DIR/config" "$BUILD_DIR/security" "$BUILD_DIR/clang-cache"
+export CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-$BUILD_DIR/clang-cache}"
+# 동기화 중인 Documents 원본의 메타데이터가 컴파일 도중 바뀌지 않도록 소스를 임시 경로에 고정한다.
+STAGE_DIR="$BUILD_DIR/source"
+mkdir -p "$STAGE_DIR/Sources" "$STAGE_DIR/Tests"
+rsync -a --delete "$ROOT/Sources/" "$STAGE_DIR/Sources/"
+rsync -a --delete "$ROOT/Tests/" "$STAGE_DIR/Tests/"
+cp "$ROOT/Package.swift" "$ROOT/Package.resolved" "$STAGE_DIR/"
+swift build --package-path "$STAGE_DIR" -c release --product WorkGraphApp --scratch-path "$BUILD_DIR" --cache-path "$BUILD_DIR/cache" --config-path "$BUILD_DIR/config" --security-path "$BUILD_DIR/security" --disable-sandbox -j 2
+BIN_DIR="$(swift build --package-path "$STAGE_DIR" -c release --show-bin-path --scratch-path "$BUILD_DIR" --cache-path "$BUILD_DIR/cache" --config-path "$BUILD_DIR/config" --security-path "$BUILD_DIR/security" --disable-sandbox)"
+APP="$BUILD_DIR/WorkGraph.app"
+APP_LINK="$ROOT/build/WorkGraph.app"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/WorkGraphApp" "$APP/Contents/MacOS/WorkGraph"
 cp -R "$ROOT/Sources/WorkGraphApp/Resources/graph" "$APP/Contents/Resources/graph"
+cp -R "$ROOT/Sources/WorkGraphApp/Resources/PluginIcons" "$APP/Contents/Resources/PluginIcons"
+cp -R "$BIN_DIR/WorkGraph_WorkGraphCore.bundle" "$APP/Contents/Resources/"
 [ -f "$ROOT/Sources/WorkGraphApp/Resources/AppIcon.icns" ] || swift "$ROOT/scripts/make-icon.swift" "$ROOT/Sources/WorkGraphApp/Resources/AppIcon.icns"
 cp "$ROOT/Sources/WorkGraphApp/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
@@ -43,6 +56,16 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+
+# 공개 OAuth 클라이언트 ID는 앱 제공자가 빌드할 때 설정한다. 비밀키는 번들에 넣지 않는다.
+for key in WORKGRAPH_GOOGLE_CLIENT_ID WORKGRAPH_GITHUB_CLIENT_ID WORKGRAPH_NOTION_CLIENT_ID; do
+  if [ -n "${!key:-}" ]; then
+    plutil -insert "$key" -string "${!key}" "$APP/Contents/Info.plist"
+  fi
+done
+
+# File Provider의 Finder 메타데이터가 서명을 깨므로 번들에서 제거한다.
+xattr -cr "$APP"
 
 # 서명: 지정값 → "Capstone Prototype Dev" → "Apple Development" → ad-hoc 순으로 고른다.
 IDENTITY="${SIGN_IDENTITY:-}"
@@ -76,5 +99,8 @@ else
   echo "서명: ad-hoc"
 fi
 
-echo "완성: $APP"
-echo "실행: open \"$APP\""
+mkdir -p "$ROOT/build"
+rm -rf "$APP_LINK"
+ln -s "$APP" "$APP_LINK"
+echo "완성: $APP_LINK"
+echo "실행: open \"$APP_LINK\""
