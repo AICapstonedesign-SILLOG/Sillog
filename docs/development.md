@@ -1,0 +1,125 @@
+# 개발 가이드
+
+[README로 돌아가기](../README.md)
+
+## 빌드와 권한
+
+```bash
+./scripts/make-app.sh
+open build/Sillog.app
+```
+
+빌드 스크립트는 소스를 임시 경로에 복사해 컴파일합니다. SwiftPM 의존성, 캐시와 앱 번들도 그 경로에 두어 Documents 동기화 중 파일 변경과 Finder 메타데이터가 빌드·서명에 영향을 주지 않도록 합니다. `build/Sillog.app`은 실제 번들로 연결되는 심볼릭 링크입니다.
+
+서명 인증서는 `SIGN_IDENTITY` 지정값 → `Capstone Prototype Dev` → `Apple Development` → ad-hoc 순서로 선택합니다.
+
+```bash
+SIGN_IDENTITY="Apple Development: 인증서 이름" ./scripts/make-app.sh
+```
+
+이름 변경 후에도 번들 ID는 `com.capstone.workgraph`를 유지합니다. 같은 번들 ID만으로 권한 유지가 보장되는 것은 아니며, **동일한 서명 인증서도 필요합니다.** ad-hoc 서명에서는 재빌드 후 권한을 다시 허용해야 할 수 있습니다.
+
+문제가 생겼을 때:
+
+- **화면 기록 목록에 앱이 없음**: 온보딩에서 권한을 요청하거나 시스템 설정의 화면 기록 목록에 `build/Sillog.app`을 직접 추가한 뒤 다시 실행합니다.
+- **이미 실행 중 안내**: 같은 DB를 사용하는 기존 앱 또는 `swift run WorkGraphApp` 프로세스를 종료합니다. 수집 중인 DB에 두 인스턴스가 동시에 쓰지 않도록 잠금이 걸립니다.
+- **`no such module 'XCTest'`**: 전체 Xcode와 개발자 경로를 확인합니다. Command Line Tools만 설치한 환경에는 XCTest가 없을 수 있습니다. 앱 빌드 성공과 단위 테스트 통과는 별도로 확인해야 합니다.
+- **실행·권한·정리 오류 확인**: `~/Library/Application Support/WorkGraph/app.log`를 확인합니다. 로그에 화면 내용이나 토큰은 기록하지 않습니다.
+
+## 환경변수
+
+기존 실행 설정과 호환되도록 `WORKGRAPH_*` 이름을 유지합니다. OAuth 변수는 [플러그인 설정](plugins.md)을 참고하세요.
+
+| 변수 | 용도 |
+| --- | --- |
+| `WORKGRAPH_BUILD_DIR` | 빌드 캐시·소스 복사본·서명된 앱을 둘 경로 |
+| `SIGN_IDENTITY` | 앱 서명 인증서. `-`는 ad-hoc |
+| `WORKGRAPH_DB` | 기본값 대신 사용할 SQLite 파일 |
+| `WORKGRAPH_CODEX_AUTH` | 앱 전용 ChatGPT 인증 파일 경로 |
+| `WORKGRAPH_SHOW_WINDOW=1` | 시작 시 메인 창 표시 |
+| `WORKGRAPH_REQUEST_PERMISSIONS=1` | 시작 시 손쉬운 사용·화면 기록 권한 요청 |
+| `WORKGRAPH_TAB` | 시작 탭: `graph`, `tasks`, `files`, `activity`, `chat`, `settings` |
+
+## 테스트와 CLI
+
+```bash
+swift build
+swift test
+swift run wgctl
+```
+
+`wgctl`은 앱과 같은 코어 로직을 사용하는 개발 도구입니다. 기본 DB는 실제 사용자 기록이므로, 실험에는 `--db`로 별도 DB를 지정하세요. 그래프 재생성·업무 병합처럼 데이터를 변경하는 명령은 앱을 종료하고 백업 후 실행해야 합니다.
+
+### 모델 없이 흐름 확인
+
+```bash
+SILLOG_TEST_DIR=$(mktemp -d)
+SILLOG_TEST_DB="$SILLOG_TEST_DIR/workgraph.sqlite"
+swift run wgctl --db "$SILLOG_TEST_DB" seed-demo
+swift run wgctl --db "$SILLOG_TEST_DB" batch --all --demo-llm
+swift run wgctl --db "$SILLOG_TEST_DB" stats
+WORKGRAPH_DB="$SILLOG_TEST_DB" WORKGRAPH_SHOW_WINDOW=1 build/Sillog.app/Contents/MacOS/Sillog
+```
+
+`--demo-llm`은 시드 데이터를 규칙으로 분류하는 가짜 모델입니다. 수집→분류→그래프 흐름을 확인하는 용도이며 실제 LLM 품질 평가에 사용할 수 없습니다. 앱의 로그인·온보딩을 우회하지는 않습니다.
+
+### 자주 쓰는 읽기 명령
+
+```bash
+swift run wgctl rows --last 50 --text
+swift run wgctl batches
+swift run wgctl cards --last 20
+swift run wgctl tasks
+swift run wgctl schema
+swift run wgctl dump report.md --since-hours 24 --text
+swift run wgctl export-graph graph.json --tbox
+swift run wgctl export-rdf graph.ttl
+swift run wgctl export-cypher graph.cypher
+```
+
+덤프와 내보내기에는 개인 기록이 포함될 수 있으므로 저장소에 커밋하지 마세요.
+
+## 데이터 구조
+
+```text
+앱·창·URL·화면·파일·AI 사용자 요청 수집
+                    ↓
+SQLite 원시 기록 + 화면 기억 카드
+                    ↓ LLM 배정
+업무·자료·주제 + 시간 기반 세션·관계
+                    ↓
+그래프 탐색 · 업무 재개 · 채팅 검색·결과물
+```
+
+- 앱·창·URL은 3초마다 확인합니다. 화면 캡처는 활성 창을 대상으로 하며, 캡처 도중 창이 바뀌면 저장하지 않습니다.
+- LLM 정리는 기본 5분 배치로 실행하지만, 업무 판단 단위는 개별 관측 행입니다. 목표에 기여하는 행, 집중 이탈, 내용 없는 화면을 구분합니다.
+- 화면 기억 카드는 대표 스크린샷의 내용을 요약합니다. 업무 배정과 채팅 검색에 활용하며 설정에서 끌 수 있습니다.
+- 세션은 같은 업무의 관측을 시간으로 묶습니다. URI 정규화·체류시간·세션 구성·프로젝트 연결은 LLM 없이 계산합니다.
+- AI 코딩 도구 로그는 Claude Code·Codex의 로컬 기록에서 사용자 입력만 읽습니다. 처음에는 최근 24시간, 이후에는 새로 추가된 내용을 읽습니다. 앱 채팅과는 별도 데이터입니다.
+
+SQLite 도구로 열 때는 **읽기 전용 연결**을 사용하세요. 앱이 WAL 모드로 계속 기록하는 파일입니다.
+
+| 조회 뷰 | 내용 |
+| --- | --- |
+| `v_rows` | 관측 행, 현지 시각, 화면 텍스트, 캡처 경로, 처리 배치 |
+| `v_row_tasks` | 관측 행의 업무 배정·이탈·자료 판정과 이유 |
+| `v_chats` | 외부 AI 코딩 도구의 사용자 메시지 |
+| `v_batches` | 정리 입력·프롬프트·응답·반영 결과·토큰·오류 |
+| `v_cards` | 화면 기억 카드 |
+| `v_sessions` | 업무별 세션과 작업 시간·요약 |
+| `v_nodes`, `v_edges` | 그래프 노드·관계 |
+| `v_file_suggestions` | 파일 이동 제안·결정·결과 |
+
+앱 채팅은 `app_conversations`, `app_messages`, `app_automations`에 저장됩니다. 원시 활동·외부 AI 대화와 분리되어 있으며, 시각은 Unix 초를 사용합니다.
+
+## 구현 위치
+
+- **스키마·관계**: `Sources/WorkGraphCore/Ontology/TBox.swift`, `RelationSchema.swift`
+- **업무 배정**: `OntologyPrompt.swift`, `AssignmentApplier.swift`, `SessionBuilder.swift`
+- **자료 분류**: `RuleClassifier.swift`, `URINormalizer.swift`
+- **채팅 실행**: `Sources/WorkGraphCore/Chat/ChatRunner.swift`, `ChatTools.swift`
+- **스킬**: `Sources/WorkGraphCore/Chat/Skills/catalog.json`과 각 Markdown 지침
+- **대화·예약 상태**: `Sources/WorkGraphApp/Chat/ChatState.swift`
+- **그래프 화면**: `Sources/WorkGraphApp/Resources/graph`
+
+채팅 하위 에이전트는 독립적인 대화와 읽기 도구를 사용하고, 재위임하지 않습니다. 주·하위 작업은 한 요청의 실행 예산을 공유합니다. OpenAI 호환 방식은 모델 호출 최대 24회, Codex 방식은 에이전트 실행 최대 24회와 실행별 앱 도구 호출 최대 32회입니다. 사용자가 중단하면 실행을 취소합니다.
