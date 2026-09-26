@@ -61,7 +61,7 @@ final class AppState: ObservableObject {
     init() {
         settings = AppSettings.load()
         guard instanceLock.acquire() else {
-            startupError = "WorkGraph 가 이미 실행 중입니다. 메뉴바의 아이콘을 확인하세요. 터미널에서 swift run 으로 띄운 것이 있다면 그쪽을 먼저 끄세요."
+            startupError = "Sillog이 이미 실행 중입니다. 메뉴바의 아이콘을 확인하세요. 터미널에서 swift run 으로 띄운 것이 있다면 그쪽을 먼저 끄세요."
             return
         }
         do {

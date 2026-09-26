@@ -1,5 +1,5 @@
 #!/bin/bash
-# release 빌드 → build/WorkGraph.app 번들 → 코드 서명.
+# release 빌드 → build/Sillog.app 번들 → 코드 서명.
 # 서명 인증서를 고정해 두면 다시 빌드해도 macOS 권한(손쉬운 사용·화면 기록)이 유지된다.
 #   SIGN_IDENTITY="Apple Development: ..." scripts/make-app.sh   # 인증서 지정
 #   SIGN_IDENTITY=- scripts/make-app.sh                          # ad-hoc (빌드할 때마다 권한을 다시 줘야 함)
@@ -9,7 +9,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 # Documents의 동기화 파일 때문에 SwiftPM 의존성 체크아웃이 멈추지 않도록 임시 빌드 경로를 쓴다.
-BUILD_DIR="${WORKGRAPH_BUILD_DIR:-${TMPDIR:-/tmp}/WorkGraph-swift-build}"
+BUILD_DIR="${WORKGRAPH_BUILD_DIR:-${TMPDIR:-/tmp}/Sillog-swift-build}"
 mkdir -p "$BUILD_DIR/cache" "$BUILD_DIR/config" "$BUILD_DIR/security" "$BUILD_DIR/clang-cache"
 export CLANG_MODULE_CACHE_PATH="${CLANG_MODULE_CACHE_PATH:-$BUILD_DIR/clang-cache}"
 # 동기화 중인 Documents 원본의 메타데이터가 컴파일 도중 바뀌지 않도록 소스를 임시 경로에 고정한다.
@@ -20,12 +20,12 @@ rsync -a --delete "$ROOT/Tests/" "$STAGE_DIR/Tests/"
 cp "$ROOT/Package.swift" "$ROOT/Package.resolved" "$STAGE_DIR/"
 swift build --package-path "$STAGE_DIR" -c release --product WorkGraphApp --scratch-path "$BUILD_DIR" --cache-path "$BUILD_DIR/cache" --config-path "$BUILD_DIR/config" --security-path "$BUILD_DIR/security" --disable-sandbox -j 2
 BIN_DIR="$(swift build --package-path "$STAGE_DIR" -c release --show-bin-path --scratch-path "$BUILD_DIR" --cache-path "$BUILD_DIR/cache" --config-path "$BUILD_DIR/config" --security-path "$BUILD_DIR/security" --disable-sandbox)"
-APP="$BUILD_DIR/WorkGraph.app"
-APP_LINK="$ROOT/build/WorkGraph.app"
+APP="$BUILD_DIR/Sillog.app"
+APP_LINK="$ROOT/build/Sillog.app"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN_DIR/WorkGraphApp" "$APP/Contents/MacOS/WorkGraph"
+cp "$BIN_DIR/WorkGraphApp" "$APP/Contents/MacOS/Sillog"
 cp -R "$ROOT/Sources/WorkGraphApp/Resources/graph" "$APP/Contents/Resources/graph"
 cp -R "$ROOT/Sources/WorkGraphApp/Resources/PluginIcons" "$APP/Contents/Resources/PluginIcons"
 cp -R "$BIN_DIR/WorkGraph_WorkGraphCore.bundle" "$APP/Contents/Resources/"
@@ -38,9 +38,9 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <plist version="1.0">
 <dict>
   <key>CFBundleIdentifier</key><string>com.capstone.workgraph</string>
-  <key>CFBundleName</key><string>WorkGraph</string>
-  <key>CFBundleDisplayName</key><string>WorkGraph</string>
-  <key>CFBundleExecutable</key><string>WorkGraph</string>
+  <key>CFBundleName</key><string>Sillog</string>
+  <key>CFBundleDisplayName</key><string>Sillog</string>
+  <key>CFBundleExecutable</key><string>Sillog</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>CFBundleVersion</key><string>1</string>

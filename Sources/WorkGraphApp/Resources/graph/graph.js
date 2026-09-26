@@ -1,4 +1,4 @@
-/* WorkGraph 그래프 뷰. Swift(WKWebView)와는 window.WG.setGraph(data) / postMessage 로만 대화한다. */
+/* Sillog 그래프 뷰. Swift(WKWebView)와는 window.WG.setGraph(data) / postMessage 로만 대화한다. */
 (() => {
   'use strict';
 

@@ -184,7 +184,7 @@ do {
 
     case "batch":
         let instance = InstanceLock(databasePath: dbPath)
-        guard instance.acquire() else { fail("이 DB 를 쓰는 WorkGraph 앱이 실행 중입니다. 앱이 직접 정리하므로 CLI 배치는 앱을 끈 뒤에 실행하세요.") }
+        guard instance.acquire() else { fail("이 DB 를 쓰는 Sillog 앱이 실행 중입니다. 앱이 직접 정리하므로 CLI 배치는 앱을 끈 뒤에 실행하세요.") }
         defer { instance.release() }
         let force = flag("--force"), all = flag("--all")
         let client: any LLMClient = flag("--demo-llm") ? DemoLLM() : makeClient().client
@@ -232,7 +232,7 @@ do {
 
     case "rebuild-graph" where flag("--from-assignments"):
         let instance = InstanceLock(databasePath: dbPath)
-        guard instance.acquire() else { fail("이 DB 를 쓰는 WorkGraph 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
+        guard instance.acquire() else { fail("이 DB 를 쓰는 Sillog 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
         defer { instance.release() }
         let stats = try GraphRebuilder(db: db, store: store).rebuildFromAssignments(now: Date().timeIntervalSince1970)
         print("세션 \(stats.sessions)개, 자료 \(stats.resources)개를 행 판단에서 다시 만들었습니다 (업무 \(stats.tasks)개, 행 \(stats.rows)개)")
@@ -241,7 +241,7 @@ do {
     case "rebuild-graph":
         guard flag("--yes") else { fail("그래프(파생 데이터)를 지우고 원시 행을 전부 미처리로 되돌립니다. 원시 행·스크린샷은 남습니다. 진행하려면 --yes 를 붙이세요.") }
         let instance = InstanceLock(databasePath: dbPath)
-        guard instance.acquire() else { fail("이 DB 를 쓰는 WorkGraph 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
+        guard instance.acquire() else { fail("이 DB 를 쓰는 Sillog 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
         try db.writer.write { conn in
             try conn.execute(sql: "UPDATE observations SET batch_id = NULL, task_id = NULL, resource_relevant = 1, off_task = 0, task_reason = NULL, card_id = NULL")
             try conn.execute(sql: "UPDATE chat_messages SET batch_id = NULL, task_id = NULL")
@@ -293,7 +293,7 @@ do {
         let texts = withText ? try store.texts(ids: rows.compactMap(\.textId)) : [:]
         let batches = try store.recentBatches(limit: 10_000).filter { $0.startedAt >= since }.reversed()
         let clock = Date.FormatStyle(date: .numeric, time: .standard)
-        var md = ["# WorkGraph 데이터 덤프 (\(Date().formatted(clock)))", "", "## 1. 원시 데이터 — 관측 행 \(rows.count)개", "",
+        var md = ["# Sillog 데이터 덤프 (\(Date().formatted(clock)))", "", "## 1. 원시 데이터 — 관측 행 \(rows.count)개", "",
                   "| # | 시각 | 계기 | 앱 | 창 제목 | URL / 문서 | 텍스트 | 캡처 | 정리 |", "|---|---|---|---|---|---|---|---|---|"]
         func cell(_ text: String?) -> String { (text ?? "").replacingOccurrences(of: "|", with: "\\|").replacingOccurrences(of: "\n", with: " ") }
         for row in rows {
@@ -389,7 +389,7 @@ do {
         for (node, why) in victims { print("  \(node.title)  — \(why)") }
         guard apply else { print("\(victims.count)개. 지우려면 --yes 를 붙이세요 (앱을 끈 뒤)."); break }
         let instance = InstanceLock(databasePath: dbPath)
-        guard instance.acquire() else { fail("이 DB 를 쓰는 WorkGraph 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
+        guard instance.acquire() else { fail("이 DB 를 쓰는 Sillog 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
         try db.writer.write { conn in
             for (node, _) in victims {
                 try conn.execute(sql: "DELETE FROM edges WHERE src = ? OR dst = ?", arguments: [node.id, node.id])
@@ -403,7 +403,7 @@ do {
         let dry = flag("--dry")
         let days = option("--days").flatMap(Double.init) ?? 7
         let instance = InstanceLock(databasePath: dbPath)
-        guard dry || instance.acquire() else { fail("이 DB 를 쓰는 WorkGraph 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
+        guard dry || instance.acquire() else { fail("이 DB 를 쓰는 Sillog 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
         defer { if !dry { instance.release() } }
         let now = Date().timeIntervalSince1970
         let titles: [String: String] = try db.writer.read { conn in
@@ -419,7 +419,7 @@ do {
 
     case "rebind-projects":
         let instance = InstanceLock(databasePath: dbPath)
-        guard instance.acquire() else { fail("이 DB 를 쓰는 WorkGraph 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
+        guard instance.acquire() else { fail("이 DB 를 쓰는 Sillog 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
         let chosen: [(String, String, Double)] = try db.writer.write { conn in
             let tx = GraphTx(conn)
             // 예전 방식(행마다 ON, 가중치 = 초)으로 쌓인 엣지를 시간 집계로 옮긴다

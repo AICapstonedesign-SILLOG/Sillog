@@ -276,7 +276,7 @@ private final class LoopbackOAuth {
             let receivedState = values.first { $0.name == "state" }?.value
             let code = values.first { $0.name == "code" }?.value
             let accepted = path.hasPrefix("/callback?") && receivedState == state && code != nil
-            let html = accepted ? "<h2>WorkGraph 플러그인이 연결되었습니다. 이 창을 닫아도 됩니다.</h2>" : "<h2>승인이 완료되지 않았습니다. WorkGraph에서 다시 시도하세요.</h2>"
+            let html = accepted ? "<h2>Sillog 플러그인이 연결되었습니다. 이 창을 닫아도 됩니다.</h2>" : "<h2>승인이 완료되지 않았습니다. Sillog에서 다시 시도하세요.</h2>"
             let body = Data(html.utf8)
             let header = "HTTP/1.1 \(accepted ? "200 OK" : "400 Bad Request")\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
             let reply = Data(header.utf8) + body

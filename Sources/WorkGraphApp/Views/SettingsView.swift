@@ -182,7 +182,7 @@ struct SettingsView: View {
             if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
             launchError = nil
         } catch {
-            launchError = "자동 실행을 바꾸지 못했습니다. build/WorkGraph.app 으로 실행했는지 확인하세요. (\(error.localizedDescription))"
+            launchError = "자동 실행을 바꾸지 못했습니다. build/Sillog.app 으로 실행했는지 확인하세요. (\(error.localizedDescription))"
         }
     }
 }

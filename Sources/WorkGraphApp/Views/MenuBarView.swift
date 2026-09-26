@@ -14,7 +14,7 @@ struct MenuBarView: View {
                 NSApp.activate(ignoringOtherApps: true)
             }
             Divider()
-            Button("WorkGraph 종료") { NSApp.terminate(nil) }
+            Button("Sillog 종료") { NSApp.terminate(nil) }
         } else {
             readyMenu
         }
@@ -50,6 +50,6 @@ struct MenuBarView: View {
             .disabled(state.batchRunning)
         Button(state.status.paused ? "수집 다시 시작" : "수집 일시정지") { state.togglePause() }
         Divider()
-        Button("WorkGraph 종료") { NSApp.terminate(nil) }
+        Button("Sillog 종료") { NSApp.terminate(nil) }
     }
 }

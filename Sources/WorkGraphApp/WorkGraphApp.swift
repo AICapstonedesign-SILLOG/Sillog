@@ -15,7 +15,7 @@ struct WorkGraphApp: App {
         }
         .menuBarExtraStyle(.menu)
 
-        Window("WorkGraph", id: "main") {
+        Window("Sillog", id: "main") {
             MainWindow().environmentObject(state)
         }
         .defaultSize(width: 1180, height: 760)
