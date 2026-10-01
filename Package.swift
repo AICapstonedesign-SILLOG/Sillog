@@ -15,7 +15,8 @@ let package = Package(
     targets: [
         .target(
             name: "WorkGraphCore",
-            dependencies: [.product(name: "GRDB", package: "GRDB.swift")]
+            dependencies: [.product(name: "GRDB", package: "GRDB.swift")],
+            resources: [.copy("Chat/Skills")]
         ),
         .target(
             name: "WorkGraphCollectors",
@@ -25,7 +26,7 @@ let package = Package(
             name: "WorkGraphApp",
             dependencies: ["WorkGraphCore", "WorkGraphCollectors"],
             exclude: ["Resources/AppIcon.icns"],            // .app 번들에는 scripts/make-app.sh 가 직접 넣는다
-            resources: [.copy("Resources/graph")]
+            resources: [.copy("Resources/graph"), .copy("Resources/PluginIcons")]
         ),
         .executableTarget(
             name: "wgctl",

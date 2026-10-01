@@ -24,7 +24,7 @@ final class ResumePlannerTests: XCTestCase {
             let chrome = try tx.upsertNode(label: NodeLabel.app, key: "com.google.Chrome", subtype: nil, title: "Google Chrome", props: [:], at: start)
             let preview = try tx.upsertNode(label: NodeLabel.app, key: "com.apple.Preview", subtype: nil, title: "미리보기", props: [:], at: start)
             let discord = try tx.upsertNode(label: NodeLabel.app, key: "com.hnc.Discord", subtype: nil, title: "Discord", props: [:], at: start)
-            let wg = try tx.upsertNode(label: NodeLabel.app, key: "com.capstone.workgraph", subtype: nil, title: "WorkGraph", props: [:], at: start)
+            let wg = try tx.upsertNode(label: NodeLabel.app, key: "com.capstone.workgraph", subtype: nil, title: "Sillog", props: [:], at: start)
             for (app, seconds) in [(code, 900.0), (chrome, 300.0), (preview, 400.0), (discord, 20.0), (wg, 500.0)] {
                 try tx.upsertEdge(src: session, dst: app, type: EdgeType.used, props: [:], addWeight: seconds, at: start)
             }
@@ -65,7 +65,7 @@ final class ResumePlannerTests: XCTestCase {
         XCTAssertEqual(plan.items[1].appBundle, "com.microsoft.VSCode")
         XCTAssertNil(plan.items[2].appBundle, "PDF 는 기본 앱으로")
         XCTAssertEqual(plan.items[3].appBundle, "com.google.Chrome", "웹페이지는 그때 쓴 브라우저로")
-        // 지워진 파일, 3초 본 페이지, 검색 결과·로그인 페이지, 5초 본 그림, 20초 쓴 Discord, WorkGraph 자신은 없다
+        // 지워진 파일, 3초 본 페이지, 검색 결과·로그인 페이지, 5초 본 그림, 20초 쓴 Discord, Sillog 자신은 없다
         XCTAssertFalse(ids.contains { $0.contains("deleted.pdf") || $0.contains("quick") || $0.contains("google.com") || $0.contains("login") || $0.contains(".png") || $0.contains("Discord") || $0.contains("workgraph") })
     }
 

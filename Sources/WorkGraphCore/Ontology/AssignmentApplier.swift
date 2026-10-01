@@ -26,13 +26,22 @@ public struct ApplyStats: Codable, Equatable, Sendable {
 ///   4. 세션은 SessionBuilder 가 시간으로 계산한다
 ///   5. 문제·나중에 할 일은 행의 세션에 붙이고, 업무 ↔ 프로젝트를 1:1 로 맞춘다
 public struct AssignmentApplier: Sendable {
+    enum ValidationError: Error { case incompleteRows, unknownTask(String) }
+
     public var sessions = SessionBuilder()
 
     public init() {}
 
-    public func apply(_ patch: AssignmentPatch, rows: [ActivityRow], tx: GraphTx, now: Double) throws -> (stats: ApplyStats, assignments: [RowAssignment]) {
+    /// 새 배치는 전체 배정을 요구하고, 기존 기록의 재구축은 과거 부분 응답도 읽을 수 있게 둔다.
+    public func apply(_ patch: AssignmentPatch, rows: [ActivityRow], tx: GraphTx, now: Double, requireComplete: Bool = false) throws -> (stats: ApplyStats, assignments: [RowAssignment]) {
         var stats = ApplyStats()
         let byNumber = Dictionary(rows.map { ($0.row, $0) }, uniquingKeysWith: { first, _ in first })
+        if requireComplete {
+            let numbers = patch.rows.flatMap(\.numbers)
+            guard numbers.count == rows.count, Set(numbers) == Set(rows.map(\.row)) else {
+                throw ValidationError.incompleteRows
+            }
+        }
 
         // 1. 업무
         var taskByRef: [String: Int64] = [:]
@@ -49,6 +58,13 @@ public struct AssignmentApplier: Sendable {
 
         // 2. 행 배정
         let decided = patch.byRow()
+        if requireComplete {
+            for decision in decided.values {
+                if let ref = decision.task, ref != AssignmentPatch.offTask, taskByRef[ref] == nil {
+                    throw ValidationError.unknownTask(ref)
+                }
+            }
+        }
         var assignments: [RowAssignment] = []
         var covered = 0
         for row in rows {

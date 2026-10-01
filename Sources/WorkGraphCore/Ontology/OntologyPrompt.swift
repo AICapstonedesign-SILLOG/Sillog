@@ -13,7 +13,7 @@ public enum OntologyPrompt {
 
     Do this:
     1. For EVERY row decide one of three things:
-       - task null: the row has no content the user engaged with — a system screen, a transition between apps, an empty, loading or authentication page, the WorkGraph app itself. Nothing to read or do.
+       - task null: the row has no content the user engaged with — a system screen, a transition between apps, an empty, loading or authentication page, the Sillog app itself. Nothing to read or do.
        - task "off": the user engaged with content, but that content serves none of the user's goals (entertainment, idle browsing, looking at things unrelated to any goal).
        - a task: the content serves one of the user's goals (an existing id, or a new task).
        Weigh the row's evidence in this order: what the user typed or read (the `screen:` description, chat messages, then `text:`) > the window title > the file or page name. When the text contradicts the title — the text shows work on one goal while the file or page in front belongs to something else — the task follows the text, and that file or page is not a resource of the task.

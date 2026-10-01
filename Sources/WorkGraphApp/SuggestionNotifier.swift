@@ -62,7 +62,7 @@ final class SuggestionNotifier: NSObject, UNUserNotificationCenterDelegate, @unc
         UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["file-suggestion-\(id)"])
     }
 
-    /// 시스템 설정 > 알림 > WorkGraph
+    /// 시스템 설정 > 알림 > Sillog
     static func openSystemSettings() {
         let id = Bundle.main.bundleIdentifier ?? "com.capstone.workgraph"
         if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)") { NSWorkspace.shared.open(url) }

@@ -289,6 +289,7 @@ public final class WGDatabase: @unchecked Sendable {
                      app_name, window_title, activity, content, kind, entities, uri FROM screen_cards;
             """)
         }
+        ChatStore.migrate(&migrator)
         return migrator
     }
 }

@@ -61,12 +61,35 @@ struct SettingsView: View {
                     TextField("서버 주소", text: $state.settings.llmBaseURL, prompt: Text("http://localhost:5010/v1"))
                     SecureField("API 키 (없으면 비워 둠)", text: $state.settings.llmAPIKey)
                 } else {
-                    codexLoginRows
+                    codexLoginRows(model: $state.settings.codexModel)
                 }
                 HStack {
                     Button("연결 확인") { Task { await state.testLLM() } }
                     if let result = state.llmTestResult { Text(result).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) }
                 }
+            }
+
+            Section("채팅에 쓰는 LLM") {
+                Text("정리용 모델과 별개로 저장됩니다. 채팅과 하위 에이전트는 아래 모델을 사용합니다.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Picker("연결 방식", selection: $state.settings.chatProvider) {
+                    Text("ChatGPT 로그인").tag("codex")
+                    Text("OpenAI 호환 서버").tag("openai")
+                }
+                if state.settings.chatProvider == "openai" {
+                    TextField("모델", text: $state.settings.chatModel)
+                    TextField("서버 주소", text: $state.settings.chatBaseURL)
+                    SecureField("API 키 (없으면 비워 둠)", text: $state.settings.chatAPIKey)
+                } else {
+                    codexLoginRows(model: $state.settings.chatCodexModel)
+                }
+                HStack {
+                    Button("채팅 연결 확인") { Task { await state.testChatLLM() } }.disabled(state.chatTesting)
+                    if state.chatTesting { ProgressView().controlSize(.small) }
+                    if let result = state.chatTestResult { Text(result).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) }
+                }
+                Text("개인 자료 없이 도구 호출과 답변을 확인합니다. 모델 사용량이 소량 발생합니다.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
 
             Section("데이터") {
@@ -86,8 +109,10 @@ struct SettingsView: View {
         }
     }
 
-    /// ChatGPT 구독 계정으로 로그인. 프록시 없이 앱이 직접 호출한다.
-    @ViewBuilder private var codexLoginRows: some View {
+    /// Args: model은 정리용 또는 채팅용 모델 선택 값이다.
+    /// Returns: 공유 로그인 상태와 독립적인 모델 선택 화면.
+    /// Raises: 없음. 인증 오류는 기존 상태 메시지에 표시한다.
+    @ViewBuilder private func codexLoginRows(model: Binding<String>) -> some View {
         switch state.codexStatus {
         case .loggedIn(let email, let plan, _):
             HStack {
@@ -106,9 +131,9 @@ struct SettingsView: View {
                 }
             }
             if state.codexModels.isEmpty {
-                TextField("모델", text: $state.settings.codexModel, prompt: Text(CodexResponsesClient.defaultModel))
+                TextField("모델", text: model, prompt: Text(CodexResponsesClient.defaultModel))
             } else {
-                Picker("모델", selection: $state.settings.codexModel) {
+                Picker("모델", selection: model) {
                     ForEach(state.codexModels) { Text($0.displayName).tag($0.slug) }
                 }
             }
@@ -157,7 +182,7 @@ struct SettingsView: View {
             if enabled { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
             launchError = nil
         } catch {
-            launchError = "자동 실행을 바꾸지 못했습니다. build/WorkGraph.app 으로 실행했는지 확인하세요. (\(error.localizedDescription))"
+            launchError = "자동 실행을 바꾸지 못했습니다. build/Sillog.app 으로 실행했는지 확인하세요. (\(error.localizedDescription))"
         }
     }
 }

@@ -84,6 +84,7 @@ public struct TaskMerger: Sendable {
     static func merge(_ group: Group, conn: Database, now: Double) throws -> Int {
         let tx = GraphTx(conn)
         guard let keep = try tx.node(label: NodeLabel.task, key: group.keep) else { return 0 }
+        var accumulated = keep.props
         var merged = 0
         for key in group.merge {
             guard let victim = try tx.node(label: NodeLabel.task, key: key), victim.id != keep.id else { continue }
@@ -97,15 +98,16 @@ public struct TaskMerger: Sendable {
             }
             // 시간
             var props: [String: JSONValue] = [
-                "active_seconds": .number((keep.props["active_seconds"]?.doubleValue ?? 0) + (victim.props["active_seconds"]?.doubleValue ?? 0)),
-                "last_active": .number(max(keep.props["last_active"]?.doubleValue ?? 0, victim.props["last_active"]?.doubleValue ?? 0)),
+                "active_seconds": .number((accumulated["active_seconds"]?.doubleValue ?? 0) + (victim.props["active_seconds"]?.doubleValue ?? 0)),
+                "last_active": .number(max(accumulated["last_active"]?.doubleValue ?? 0, victim.props["last_active"]?.doubleValue ?? 0)),
             ]
-            var tally = keep.props["project_seconds"]?.objectValue ?? [:]
+            var tally = accumulated["project_seconds"]?.objectValue ?? [:]
             for (project, seconds) in victim.props["project_seconds"]?.objectValue ?? [:] {
                 tally[project] = .number((tally[project]?.doubleValue ?? 0) + (seconds.doubleValue ?? 0))
             }
             if !tally.isEmpty { props["project_seconds"] = .object(tally) }
             try tx.setProps(nodeId: keep.id, props, at: now)
+            accumulated.merge(props) { _, new in new }
             try conn.execute(sql: "DELETE FROM edges WHERE src = ? OR dst = ?", arguments: [victim.id, victim.id])
             try conn.execute(sql: "DELETE FROM nodes WHERE id = ?", arguments: [victim.id])
             merged += 1

@@ -11,6 +11,11 @@ struct AppSettings: Codable, Equatable {
     var llmBaseURL = "http://localhost:5010/v1"
     var llmModel = "gpt-5.4-mini"
     var llmAPIKey = ""
+    var chatProvider = "codex"
+    var chatCodexModel = CodexResponsesClient.defaultModel
+    var chatBaseURL = "http://localhost:5010/v1"
+    var chatModel = "gpt-5.4-mini"
+    var chatAPIKey = ""
     var batchEnabled = true
     var captureText = true
     var captureScreenshots = true
@@ -31,6 +36,9 @@ struct AppSettings: Codable, Equatable {
     init() {}
 
     /// 나중에 항목이 늘어도 예전에 저장한 설정이 통째로 초기화되지 않게, 없는 값은 기본값으로 채운다.
+    /// Args: decoder는 저장된 사용자 설정이다.
+    /// Returns: 기존 값을 보존하고 채팅 전용 설정을 채운 설정 객체.
+    /// Raises: 저장된 값의 타입이 잘못된 경우 디코딩 오류.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = AppSettings()
@@ -39,6 +47,12 @@ struct AppSettings: Codable, Equatable {
         llmBaseURL = try c.decodeIfPresent(String.self, forKey: .llmBaseURL) ?? d.llmBaseURL
         llmModel = try c.decodeIfPresent(String.self, forKey: .llmModel) ?? d.llmModel
         llmAPIKey = try c.decodeIfPresent(String.self, forKey: .llmAPIKey) ?? d.llmAPIKey
+        // 기존 사용자는 처음 한 번 기존 연결을 이어받고, 이후에는 각각 저장한다.
+        chatProvider = try c.decodeIfPresent(String.self, forKey: .chatProvider) ?? llmProvider
+        chatCodexModel = try c.decodeIfPresent(String.self, forKey: .chatCodexModel) ?? codexModel
+        chatBaseURL = try c.decodeIfPresent(String.self, forKey: .chatBaseURL) ?? llmBaseURL
+        chatModel = try c.decodeIfPresent(String.self, forKey: .chatModel) ?? llmModel
+        chatAPIKey = try c.decodeIfPresent(String.self, forKey: .chatAPIKey) ?? llmAPIKey
         batchEnabled = try c.decodeIfPresent(Bool.self, forKey: .batchEnabled) ?? d.batchEnabled
         captureText = try c.decodeIfPresent(Bool.self, forKey: .captureText) ?? d.captureText
         captureScreenshots = try c.decodeIfPresent(Bool.self, forKey: .captureScreenshots) ?? d.captureScreenshots
@@ -72,4 +86,6 @@ struct AppSettings: Codable, Equatable {
         settings.excludedBundles = Set(excludedBundles)
         return settings
     }
+
+    var chatModelName: String { chatProvider == "openai" ? chatModel : chatCodexModel }
 }
