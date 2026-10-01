@@ -469,3 +469,37 @@ final class OffTaskTests: XCTestCase {
         XCTAssertEqual(off.map { "\($0.app) \(Int($0.seconds))" }, ["Google Chrome 60"], "이탈 시간은 행에서 집계된다")
     }
 }
+
+final class TaskGoalTests: XCTestCase {
+    func testNewTaskStoresItsGoalAndTheCandidateListShowsIt() throws {
+        let db = try WGDatabase.inMemory()
+        let rows = Fixtures.frontendRows()
+        let patch = try Fixtures.patch("""
+        {"tasks":[{"ref":"A","match":"new","title":"Acme 직무 PT 자료 준비","task_type":"발표자료","goal":"Acme 면접에서 발표할 직무 PT 준비"}],
+         "rows":[{"rows":"1-6","task":"A","resource":true}],"work":[{"task":"A","summary":"슬라이드를 만들었다","topics":[]}]}
+        """)
+        try db.writer.write { conn in
+            let tx = GraphTx(conn)
+            try TBox.seed(tx, at: 0)
+            _ = try AssignmentApplier().apply(patch, rows: rows, tx: tx, now: 2_000_000)
+            let task = try XCTUnwrap(tx.nodes(label: NodeLabel.task).first)
+            XCTAssertEqual(task.props["goal"]?.stringValue, "Acme 면접에서 발표할 직무 PT 준비")
+            let digest = try XCTUnwrap(tx.openTasks(limit: 5).first)
+            XCTAssertEqual(digest.goal, "Acme 면접에서 발표할 직무 PT 준비")
+            let prompt = OntologyPrompt.build(rows: [], openTasks: [digest], now: 2_000_000)
+            XCTAssertTrue(prompt.user.contains("goal: Acme 면접에서 발표할 직무 PT 준비"), prompt.user)
+
+            // 기존 업무의 goal 은 덮어쓰지 않는다 (비어 있을 때만 채운다)
+            let again = try Fixtures.patch("""
+            {"tasks":[{"ref":"A","match":"existing","id":"\\(task.key)","goal":"다른 문장"}],"rows":[{"rows":"1","task":"A"}],"work":[]}
+            """)
+            _ = try AssignmentApplier().apply(again, rows: rows, tx: tx, now: 2_000_100)
+            XCTAssertEqual(try tx.node(id: task.id)?.props["goal"]?.stringValue, "Acme 면접에서 발표할 직무 PT 준비")
+        }
+    }
+
+    func testCardPromptForbidsGuessingPurposeAndQuotesMessages() {
+        XCTAssertTrue(CardMaker.system.contains("not what it means"))
+        XCTAssertTrue(CardMaker.system.contains("quote the visible messages verbatim"))
+    }
+}

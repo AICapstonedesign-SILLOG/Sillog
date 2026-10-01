@@ -29,6 +29,12 @@ public enum KeyframeSelector {
         public var start: Double
         public var end: Double
         public var representative: Shot { shots.sorted { $0.ts < $1.ts }[shots.count / 2] }
+
+        public init(appBundle: String, appName: String, title: String?, uri: String?, shots: [Shot], seconds: Double,
+                    rows: [Int], observationIds: [Int64], start: Double, end: Double) {
+            self.appBundle = appBundle; self.appName = appName; self.title = title; self.uri = uri; self.shots = shots
+            self.seconds = seconds; self.rows = rows; self.observationIds = observationIds; self.start = start; self.end = end
+        }
     }
 
     public static let sameScreenDistance = 8

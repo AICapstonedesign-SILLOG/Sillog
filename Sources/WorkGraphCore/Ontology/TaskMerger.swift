@@ -48,6 +48,7 @@ public struct TaskMerger: Sendable {
         var lines = ["TASKS:"]
         for task in tasks {
             var line = "- id=\(task.id) | \(task.title) | \(task.taskType ?? "기타")"
+            if let goal = task.goal { line += " | goal: \(OntologyPrompt.clip(goal, 140))" }
             if !task.topics.isEmpty { line += " | topics: \(task.topics.joined(separator: ", "))" }
             if !task.recentSummaries.isEmpty { line += " | recent work: \(task.recentSummaries.map { OntologyPrompt.clip($0, 120) }.joined(separator: " / "))" }
             if !task.recentResources.isEmpty { line += " | resources: \(task.recentResources.prefix(4).map { OntologyPrompt.clip($0, 50) }.joined(separator: "; "))" }

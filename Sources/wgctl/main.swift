@@ -50,6 +50,7 @@ wgctl [--db PATH] <command>
                                         정답이 붙은 가짜 하루를 LLM 에 보내 행 판정(업무/이탈/없음, 자료 여부)을 채점한다 (기록 안 함)
   backfill-screen-hash                  예전 스크린샷 파일에서 차이 해시를 계산해 원시 행에 채운다 (화면 기억 카드의 재료)
   cards [--last N]                      화면 기억 카드 (무엇을 했나, 화면 내용, 이름 붙은 것들)
+  recard [--ids 1,2] [--kind message]   카드를 저장된 스크린샷으로 지금 규칙에 맞춰 다시 만든다 (12장씩 한 호출)
   topic-audit [--last N]                지난 배치들의 LLM 응답에서 주제 태그를 모아 필터가 거를 것을 센다 (프롬프트 대 필터 평가)
   replay-batch ID [ID…]                 저장된 배치의 입력을 지금 프롬프트로 다시 보내 응답을 비교한다 (기록하지 않음. 배치당 LLM 호출 1번)
 
@@ -243,7 +244,8 @@ do {
         let instance = InstanceLock(databasePath: dbPath)
         guard instance.acquire() else { fail("이 DB 를 쓰는 WorkGraph 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
         try db.writer.write { conn in
-            try conn.execute(sql: "UPDATE observations SET batch_id = NULL, task_id = NULL, resource_relevant = 1, off_task = 0, task_reason = NULL, card_id = NULL")
+            // 카드 연결(card_id)은 남긴다: 화면 카드는 판정과 무관한 사실이라 다시 만들 필요가 없다
+            try conn.execute(sql: "UPDATE observations SET batch_id = NULL, task_id = NULL, resource_relevant = 1, off_task = 0, task_reason = NULL")
             try conn.execute(sql: "UPDATE chat_messages SET batch_id = NULL, task_id = NULL")
             try conn.execute(sql: "DELETE FROM edges")
             try conn.execute(sql: "DELETE FROM nodes")
@@ -538,6 +540,43 @@ do {
             filled += 1
         }
         print("해시 \(filled)개 채움, 파일 없음 \(missing)개")
+
+    case "recard":
+        let ids = (option("--ids") ?? "").split(separator: ",").compactMap { Int64($0.trimmingCharacters(in: .whitespaces)) }
+        let kind = option("--kind")
+        var targets: [ScreenCard] = try db.writer.read { conn in
+            if !ids.isEmpty { return try ScreenCard.fetchAll(conn, keys: ids) }
+            if let kind { return try ScreenCard.fetchAll(conn, sql: "SELECT * FROM screen_cards WHERE kind = ? ORDER BY ts_start", arguments: [kind]) }
+            return []
+        }
+        targets = targets.filter { $0.screenshotPath.map { FileManager.default.fileExists(atPath: $0) } ?? false }
+        guard !targets.isEmpty else { fail("다시 만들 카드가 없음 (--ids 또는 --kind, 스크린샷이 남아 있어야 함)") }
+        guard let vision = makeClient().client as? any VisionLLMClient else { fail("이미지를 받는 LLM 이 아님") }
+        var updated = 0
+        for start in stride(from: 0, to: targets.count, by: CardMaker.maxImages) {
+            let chunk = Array(targets[start..<min(start + CardMaker.maxImages, targets.count)])
+            let groups = chunk.map { card in
+                KeyframeSelector.Group(appBundle: card.appBundle, appName: card.appName, title: card.windowTitle, uri: card.uri,
+                                       shots: [KeyframeSelector.Shot(observationId: 0, ts: card.tsStart, path: card.screenshotPath!, hash: UInt64(bitPattern: card.screenHash))],
+                                       seconds: card.tsEnd - card.tsStart, rows: [], observationIds: [], start: card.tsStart, end: card.tsEnd)
+            }
+            let (drafts, result) = try await CardMaker.make(groups, llm: vision)
+            try await db.writer.write { conn in
+                for (index, draft) in drafts.enumerated() {
+                    guard let draft, let id = chunk[index].id else { continue }
+                    try conn.execute(sql: "UPDATE screen_cards SET activity = ?, content = ?, kind = ?, entities = ? WHERE id = ?",
+                                     arguments: [draft.activity, draft.content.joined(separator: "\n"), draft.kind, CardMaker.entitiesJSON(draft.entities), id])
+                }
+            }
+            for (index, draft) in drafts.enumerated() {
+                guard let draft else { continue }
+                updated += 1
+                print("#\(chunk[index].id ?? 0) 전: \(chunk[index].activity)")
+                print("      후: \(draft.activity)")
+            }
+            if let result { print("  (토큰 \(result.promptTokens)+\(result.completionTokens))") }
+        }
+        print("카드 \(updated)/\(targets.count)장을 다시 만들었습니다.")
 
     case "cards":
         let last = option("--last").flatMap(Int.init) ?? 20

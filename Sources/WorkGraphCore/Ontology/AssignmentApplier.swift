@@ -39,6 +39,11 @@ public struct AssignmentApplier: Sendable {
         for def in patch.tasks where !def.ref.isEmpty {
             let (id, created) = try resolveTask(def, tx: tx, now: now)
             if let id { taskByRef[def.ref] = id }
+            // 목표 한 줄: 새 업무거나 아직 없으면 저장 (후보 목록·합치기 판단의 근거)
+            if let id, let goal = def.goal?.trimmingCharacters(in: .whitespacesAndNewlines), !goal.isEmpty,
+               let node = try tx.node(id: id), created || (node.props["goal"]?.stringValue ?? "").isEmpty {
+                try tx.setProps(nodeId: id, ["goal": .string(goal)], at: now)
+            }
             if created { stats.tasksCreated += 1 }
         }
 

@@ -68,6 +68,16 @@ public struct ScreenCardStore: Sendable {
             """, arguments: [appBundle, title ?? "", uri ?? "", since])
     }
 
+    /// 이 관측들이 이미 연결된 카드 (가장 많이 연결된 것). 재생성 때 카드를 다시 만들지 않게 한다
+    public static func linkedCard(_ conn: Database, observationIds: [Int64]) throws -> ScreenCard? {
+        guard !observationIds.isEmpty else { return nil }
+        let list = observationIds.map(String.init).joined(separator: ",")
+        guard let id = try Int64.fetchOne(conn, sql: """
+            SELECT card_id FROM observations WHERE id IN (\(list)) AND card_id IS NOT NULL GROUP BY card_id ORDER BY COUNT(*) DESC LIMIT 1
+            """) else { return nil }
+        return try ScreenCard.fetchOne(conn, key: id)
+    }
+
     public static func extend(_ conn: Database, cardId: Int64, to end: Double) throws {
         try conn.execute(sql: "UPDATE screen_cards SET ts_end = MAX(ts_end, ?) WHERE id = ?", arguments: [end, cardId])
     }
