@@ -9,7 +9,7 @@
 open build/Sillog.app
 ```
 
-빌드 스크립트는 소스를 임시 경로에 복사해 컴파일합니다. SwiftPM 의존성, 캐시와 앱 번들도 그 경로에 두어 Documents 동기화 중 파일 변경과 Finder 메타데이터가 빌드·서명에 영향을 주지 않도록 합니다. `build/Sillog.app`은 실제 번들로 연결되는 심볼릭 링크입니다.
+빌드 스크립트는 소스를 임시 경로에 복사해 컴파일하고 앱 번들을 서명합니다. 완성된 앱은 `~/Applications/Sillog.app`에 설치하며, `build/Sillog.app`은 설치된 앱으로 연결되는 심볼릭 링크입니다. 컴파일과 서명은 Documents 동기화의 영향을 피하면서, 실행과 권한 등록에는 일정한 설치 경로를 사용합니다.
 
 서명 인증서는 `SIGN_IDENTITY` 지정값 → `Capstone Prototype Dev` → `Apple Development` → ad-hoc 순서로 선택합니다.
 
@@ -21,7 +21,8 @@ SIGN_IDENTITY="Apple Development: 인증서 이름" ./scripts/make-app.sh
 
 문제가 생겼을 때:
 
-- **화면 기록 목록에 앱이 없음**: 온보딩에서 권한을 요청하거나 시스템 설정의 화면 기록 목록에 `build/Sillog.app`을 직접 추가한 뒤 다시 실행합니다.
+- **화면 기록 목록에 앱이 없음**: 시스템 설정의 화면 기록 목록에 `~/Applications/Sillog.app`을 직접 추가하고 허용한 뒤 앱을 종료하고 다시 실행합니다.
+- **시스템 설정은 허용인데 앱은 권한 없음**: ad-hoc 서명으로 다시 빌드하면 기존 권한에 저장된 서명과 달라질 수 있습니다. 앱을 종료하고 화면 기록 목록의 Sillog 항목을 제거한 뒤, 설치된 앱을 다시 추가·허용하고 실행합니다. 재빌드 후에도 권한을 유지하려면 같은 개발자 인증서로 서명합니다.
 - **이미 실행 중 안내**: 같은 DB를 사용하는 기존 앱 또는 `swift run WorkGraphApp` 프로세스를 종료합니다. 수집 중인 DB에 두 인스턴스가 동시에 쓰지 않도록 잠금이 걸립니다.
 - **`no such module 'XCTest'`**: 전체 Xcode와 개발자 경로를 확인합니다. Command Line Tools만 설치한 환경에는 XCTest가 없을 수 있습니다. 앱 빌드 성공과 단위 테스트 통과는 별도로 확인해야 합니다.
 - **실행·권한·정리 오류 확인**: `~/Library/Application Support/WorkGraph/app.log`를 확인합니다. 로그에 화면 내용이나 토큰은 기록하지 않습니다.
@@ -32,7 +33,7 @@ SIGN_IDENTITY="Apple Development: 인증서 이름" ./scripts/make-app.sh
 
 | 변수 | 용도 |
 | --- | --- |
-| `WORKGRAPH_BUILD_DIR` | 빌드 캐시·소스 복사본·서명된 앱을 둘 경로 |
+| `WORKGRAPH_BUILD_DIR` | 빌드 캐시·소스 복사본·앱 번들을 준비할 경로 |
 | `SIGN_IDENTITY` | 앱 서명 인증서. `-`는 ad-hoc |
 | `WORKGRAPH_DB` | 기본값 대신 사용할 SQLite 파일 |
 | `WORKGRAPH_CODEX_AUTH` | 앱 전용 ChatGPT 인증 파일 경로 |

@@ -11,15 +11,25 @@ public struct CodexAppServerClient: Sendable {
     /// Raises: 없음. CLI·인증 확인은 실행 시 수행한다.
     public init(auth: any CodexCredentialProviding, model: String) { self.auth = auth; self.model = model }
 
-    /// Args: 없음.
+    /// Args: timeout은 연결 검사의 제한 시간(초)이다.
     /// Returns: 없음. 개인 자료 없이 실제 도구 호출과 최종 답변을 확인한다.
-    /// Raises: 연결 실패 또는 도구 호출 누락.
-    public func checkConnection() async throws {
+    /// Raises: 연결 실패, 도구 호출 누락, 시간 초과 또는 취소.
+    public func checkConnection(timeout: TimeInterval = 45) async throws {
         let marker = UUID().uuidString
-        let text = try await run(system: "Call connection_check, then reply with its returned text exactly.",
-                                 messages: [.init(role: "user", text: "Check the connection.")],
-                                 tools: [ChatTools.spec("connection_check", "Returns the connection test result.", [:])],
-                                 useWeb: false, execute: { _ in marker }, onEvent: { _ in })
+        let text = try await withThrowingTaskGroup(of: String.self) { group in
+            group.addTask {
+                try await run(system: "Call connection_check, then reply with its returned text exactly.",
+                              messages: [.init(role: "user", text: "Check the connection.")],
+                              tools: [ChatTools.spec("connection_check", "Returns the connection test result.", [:])],
+                              useWeb: false, execute: { _ in marker }, onEvent: { _ in })
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                throw ChatToolError.unavailable("채팅 모델 연결 확인 시간이 초과되었습니다.")
+            }
+            defer { group.cancelAll() }
+            return try await group.next()!
+        }
         guard text.contains(marker) else { throw ChatToolError.unavailable("Codex 도구 연결 확인에 실패했습니다.") }
     }
 
@@ -113,6 +123,47 @@ public struct CodexAppServerClient: Sendable {
     }
 }
 
+/// 채팅 실행과 모델 목록 조회에서 같은 Codex 실행기·버전을 사용한다.
+enum CodexRuntime {
+    static var paths: [String] {
+        (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init) + ["/opt/homebrew/bin", "/usr/local/bin"]
+    }
+
+    /// Args: 없음.
+    /// Returns: 앱 번들 또는 검색 경로에서 찾은 Codex 실행 파일.
+    /// Raises: 실행 파일을 찾지 못하면 CLI 설치 안내 오류.
+    static func executableURL() throws -> URL {
+        let bundled = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex")?.appendingPathComponent("Contents/Resources/codex")
+        let candidates = [bundled].compactMap { $0 } + paths.map { URL(fileURLWithPath: $0).appendingPathComponent("codex") }
+        guard let executable = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) else {
+            throw ChatToolError.unavailable("Codex CLI가 필요합니다. Codex CLI를 설치한 뒤 앱을 다시 실행하세요.")
+        }
+        return executable
+    }
+
+    /// Args: 없음.
+    /// Returns: 같은 실행 파일의 CLI 버전. 확인하지 못하면 nil.
+    /// Raises: 없음. 버전 확인에는 별도의 임시 Codex 저장소를 사용한다.
+    static func clientVersion() -> String? {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("workgraph-codex-version-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let process = Process(), output = Pipe()
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            process.executableURL = try executableURL()
+            process.arguments = ["--version"]
+            process.environment = ["PATH": paths.joined(separator: ":"), "HOME": FileManager.default.homeDirectoryForCurrentUser.path, "CODEX_HOME": directory.path]
+            process.standardOutput = output
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            return String(decoding: data, as: UTF8.self).split(whereSeparator: \.isWhitespace).dropFirst().first.map(String.init)
+        } catch { return nil }
+    }
+}
+
 /// 한 작업에만 쓰는 stdio 연결. 사용자 Codex 설정·MCP·로그인 파일을 변경하거나 공유하지 않는다.
 private final class CodexServerConnection: @unchecked Sendable {
     let directory: URL
@@ -129,13 +180,8 @@ private final class CodexServerConnection: @unchecked Sendable {
     /// Returns: 독립된 임시 작업 디렉터리와 JSONL 연결.
     /// Raises: CLI 미설치 또는 임시 디렉터리 생성 실패.
     init() throws {
-        let environment = ProcessInfo.processInfo.environment
-        let paths = (environment["PATH"] ?? "").split(separator: ":").map(String.init) + ["/opt/homebrew/bin", "/usr/local/bin"]
-        let bundled = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex")?.appendingPathComponent("Contents/Resources/codex")
-        let candidates = [bundled].compactMap { $0 } + paths.map { URL(fileURLWithPath: $0).appendingPathComponent("codex") }
-        guard let executable = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0.path) }) else {
-            throw ChatToolError.unavailable("Codex CLI가 필요합니다. Codex CLI를 설치한 뒤 앱을 다시 실행하세요.")
-        }
+        let paths = CodexRuntime.paths
+        let executable = try CodexRuntime.executableURL()
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("workgraph-codex-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         process.executableURL = executable
