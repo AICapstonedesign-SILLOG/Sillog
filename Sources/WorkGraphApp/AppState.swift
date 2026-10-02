@@ -73,7 +73,8 @@ final class AppState: ObservableObject {
             self.db = database
             self.store = store
             self.coordinator = coordinator
-            self.chat = ChatState(db: database, makeClient: { [unowned self] in self.makeChatClient() })
+            self.chat = ChatState(db: database, makeClient: { [unowned self] in self.makeChatClient() },
+                                  makeProjectClient: { [unowned self] in self.makeClient() })
             let batcher = OntologyBatcher(db: database, llm: makeClient())
             self.batcher = batcher
             let cardsOn = settings.screenCards && settings.captureScreenshots
@@ -321,7 +322,7 @@ final class AppState: ObservableObject {
             }
             break
         }
-        if applied { graphVersion += 1; refreshTasks() }
+        if applied { graphVersion += 1; refreshTasks(); chat?.projects.check() }
         refresh()
     }
 

@@ -38,7 +38,7 @@ SIGN_IDENTITY="Apple Development: 인증서 이름" ./scripts/make-app.sh
 | `WORKGRAPH_CODEX_AUTH` | 앱 전용 ChatGPT 인증 파일 경로 |
 | `WORKGRAPH_SHOW_WINDOW=1` | 시작 시 메인 창 표시 |
 | `WORKGRAPH_REQUEST_PERMISSIONS=1` | 시작 시 손쉬운 사용·화면 기록 권한 요청 |
-| `WORKGRAPH_TAB` | 시작 탭: `graph`, `tasks`, `files`, `activity`, `chat`, `settings` |
+| `WORKGRAPH_TAB` | 시작 탭: `graph`, `tasks`, `files`, `library`, `activity`, `chat`, `settings` |
 
 ## 테스트와 CLI
 
@@ -112,6 +112,16 @@ SQLite 도구로 열 때는 **읽기 전용 연결**을 사용하세요. 앱이 
 
 앱 채팅은 `app_conversations`, `app_messages`, `app_automations`에 저장됩니다. 원시 활동·외부 AI 대화와 분리되어 있으며, 시각은 Unix 초를 사용합니다.
 
+CHAT-110의 목표별 프로젝트는 `app_projects`, 업무 소속은 `project_tasks`, 대화 소속은 `app_conversations.project_id`에 저장합니다. 기존 그래프의 저장소·폴더 `Project` 노드와는 별개입니다. 대기 중인 후보는 `project_proposals`, 검토·무시·수동 이동 이력은 `project_reviewed`에 남깁니다. 최초 검토는 기존 항목을 40개씩 처리하고, 이후 새 항목을 판단할 때 이전 미분류 항목도 연결 근거로 제공합니다. 사용자가 수락하기 전에는 소속을 변경하지 않습니다.
+
+수락 대기 중인 업무의 자동 병합은 보류합니다. 수락한 뒤에도 서로 다른 프로젝트의 업무와 사용자가 직접 분류에서 뺀 업무는 병합으로 소속을 바꾸지 않습니다. 프로젝트를 삭제하면 대화와 예약의 프로젝트 소속만 해제합니다.
+
+프로젝트의 `memoryMode`는 `allRecords`(기본) 또는 `projectOnly`입니다. 기본 모드는 현재 프로젝트의 대화를 우선하고 전용 프로젝트를 제외한 기록을 검색합니다. 전용 모드는 해당 프로젝트의 업무·대화·자료만 허용하며, 일반 채팅에서도 제외됩니다. 검색과 직접 읽기 모두 같은 범위를 검사하고, 공유 자료의 관계를 따라갈 때도 전용 업무·세션으로 확장하지 않습니다. 공개·전용 활동이 섞인 화면 카드는 요약을 노출하지 않습니다.
+
+v13의 `app_library`에는 파일 메타데이터와 추출 텍스트, `library_project_sources`와 `library_conversation_sources`에는 명시적인 연결을 저장합니다. 파일 복사본은 DB 옆 `library/<자료 ID>/`에 둡니다. 프로젝트·대화 삭제 시 연결만 제거하고 보관함 원본은 유지합니다. `library_deleted_origins`는 사용자가 삭제한 생성 결과물이 다음 앱 실행에서 다시 수집되지 않게 합니다. 기존 경로는 그대로 유지하며 다른 대화의 경로를 자동 공유하지 않습니다.
+
+v14의 `app_messages_fts`는 완료된 메시지와 결과물 본문 전체를 색인하고 저장·상태 변경·삭제 트리거로 갱신합니다. 검색은 일치한 메시지 ID를 반환하고 `read_context`로 원문을 문자 위치별로 이어 읽습니다. 대화 ID 조회는 시작 메시지 번호부터 20개씩 반환합니다. 저장 자료와 관련 과거 기록 일부는 실행 시작 시 제공하며 추가 원문은 도구로 읽습니다. 프로젝트 공통 지침은 사용자 설정이고 검색된 내용은 지시가 아닌 자료로 전달합니다.
+
 ## 구현 위치
 
 - **스키마·관계**: `Sources/WorkGraphCore/Ontology/TBox.swift`, `RelationSchema.swift`
@@ -120,6 +130,8 @@ SQLite 도구로 열 때는 **읽기 전용 연결**을 사용하세요. 앱이 
 - **채팅 실행**: `Sources/WorkGraphCore/Chat/ChatRunner.swift`, `ChatTools.swift`
 - **스킬**: `Sources/WorkGraphCore/Chat/Skills/catalog.json`과 각 Markdown 지침
 - **대화·예약 상태**: `Sources/WorkGraphApp/Chat/ChatState.swift`
+- **프로젝트 제안·소속**: `Sources/WorkGraphCore/Chat/ProjectOrganizer.swift`, `ProjectStore.swift`, `Sources/WorkGraphApp/Chat/ProjectState.swift`
+- **자료 보관·추출**: `Sources/WorkGraphCore/Chat/LibraryStore.swift`, `FileTextExtractor.swift`, `Sources/WorkGraphApp/Chat/LibraryState.swift`, `Views/LibraryView.swift`
 - **그래프 화면**: `Sources/WorkGraphApp/Resources/graph`
 
 채팅 하위 에이전트는 독립적인 대화와 읽기 도구를 사용하고, 재위임하지 않습니다. 주·하위 작업은 한 요청의 실행 예산을 공유합니다. OpenAI 호환 방식은 모델 호출 최대 24회, Codex 방식은 에이전트 실행 최대 24회와 실행별 앱 도구 호출 최대 32회입니다. 사용자가 중단하면 실행을 취소합니다.

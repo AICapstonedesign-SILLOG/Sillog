@@ -25,11 +25,17 @@ struct TasksView: View {
                     ForEach(state.taskList) { task in
                         VStack(alignment: .leading, spacing: 3) {
                             Text(task.title).lineLimit(1)
+                            if let projects = state.chat?.projects { ProjectAssignmentLabel(projects: projects, itemID: "task:\(task.id)") }
                             Text("\(Self.duration(task.activeSeconds)) · 세션 \(task.sessionCount)개 · \(Self.day.string(from: Date(timeIntervalSince1970: task.lastActive)))")
                                 .font(.callout).foregroundStyle(.secondary)
                         }
                         .padding(.vertical, 2)
                         .tag(task.id)
+                        .contextMenu {
+                            if let projects = state.chat?.projects {
+                                ProjectMoveMenu(projects: projects, itemID: "task:\(task.id)")
+                            }
+                        }
                     }
                 }
                 if !state.offTaskToday.isEmpty {

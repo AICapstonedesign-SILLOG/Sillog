@@ -2,12 +2,15 @@ import Foundation
 import GRDB
 
 public struct ChatScope: Codable, Equatable, Sendable {
+    public var projectID: String?
+    public var conversationID: String?
     public var paths: [String] = []
+    public var libraryIDs: [String] = []
     public var useActivity = true
     public var useWeb = false
     public var useGitHub = false
     public var plugins: [String] = []
-    private enum CodingKeys: String, CodingKey { case paths, useActivity, useWeb, useGitHub, plugins }
+    private enum CodingKeys: String, CodingKey { case paths, libraryIDs, useActivity, useWeb, useGitHub, plugins, projectID }
 
     /// Args: 없음.
     /// Returns: 활동 기록만 사용하는 기본 범위.
@@ -19,7 +22,9 @@ public struct ChatScope: Codable, Equatable, Sendable {
     /// Raises: 저장된 값의 디코딩 오류.
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        projectID = try values.decodeIfPresent(String.self, forKey: .projectID)
         paths = try values.decodeIfPresent([String].self, forKey: .paths) ?? []
+        libraryIDs = try values.decodeIfPresent([String].self, forKey: .libraryIDs) ?? []
         useActivity = try values.decodeIfPresent(Bool.self, forKey: .useActivity) ?? true
         useWeb = try values.decodeIfPresent(Bool.self, forKey: .useWeb) ?? false
         useGitHub = try values.decodeIfPresent(Bool.self, forKey: .useGitHub) ?? useWeb
@@ -39,6 +44,9 @@ public struct ChatArtifact: Codable, Identifiable, Equatable, Sendable {
     public var title: String
     public var format: String
     public var content: String
+    public init(title: String, format: String, content: String) {
+        self.title = title; self.format = format; self.content = content
+    }
 }
 
 public struct ChatAutomationProposal: Codable, Equatable, Sendable {
@@ -52,6 +60,7 @@ public struct ChatConversation: Codable, Identifiable, Sendable {
     public var title = "새 대화"
     public var skillID = "general"
     public var scope = ChatScope()
+    public var projectID: String?
     public var updatedAt = Date().timeIntervalSince1970
     /// Args: 없음.
     /// Returns: 고유 ID를 가진 빈 대화.
@@ -97,7 +106,7 @@ public struct ChatAutomation: Codable, Identifiable, Sendable {
     /// Raises: 없음.
     public init(proposal: ChatAutomationProposal, conversation: ChatConversation, now: Double = Date().timeIntervalSince1970) {
         title = proposal.title; prompt = proposal.prompt; skillID = conversation.skillID
-        scope = conversation.scope; intervalHours = proposal.intervalHours
+        scope = conversation.scope; scope.projectID = conversation.projectID; intervalHours = proposal.intervalHours
         nextRun = now + Double(intervalHours) * 3600
     }
 }
@@ -152,8 +161,32 @@ public struct ChatStore: Sendable {
     /// Raises: DB·디코딩 오류.
     public func conversations() throws -> [ChatConversation] {
         try db.writer.read { conn in
-            try String.fetchAll(conn, sql: "SELECT payload FROM app_conversations ORDER BY updated_at DESC")
-                .map { try JSONDecoder().decode(ChatConversation.self, from: Data($0.utf8)) }
+            try Row.fetchAll(conn, sql: "SELECT payload, project_id FROM app_conversations ORDER BY updated_at DESC")
+                .map { row in
+                    var conversation = try JSONDecoder().decode(ChatConversation.self, from: Data((row["payload"] as String).utf8))
+                    conversation.projectID = row["project_id"]
+                    return conversation
+                }
+        }
+    }
+
+    /// Args: 없음.
+    /// Returns: 대화 목록에 표시할 마지막 메시지의 짧은 미리보기.
+    /// Raises: DB 조회 오류.
+    public func conversationPreviews() throws -> [String: String] {
+        try db.writer.read { conn in
+            let rows = try Row.fetchAll(conn, sql: """
+                SELECT c.id, (
+                    SELECT substr(json_extract(m.payload, '$.text'), 1, 240)
+                    FROM app_messages m WHERE m.conversation_id = c.id
+                      AND json_extract(m.payload, '$.text') != ''
+                      AND json_extract(m.payload, '$.status') = 'complete'
+                    ORDER BY m.created_at DESC, m.rowid DESC LIMIT 1
+                ) AS preview FROM app_conversations c
+                """)
+            return Dictionary(uniqueKeysWithValues: rows.map { row in
+                (row["id"] as String, row["preview"] as String? ?? "")
+            })
         }
     }
 
@@ -163,8 +196,8 @@ public struct ChatStore: Sendable {
     public func save(_ conversation: ChatConversation) throws {
         let payload = String(decoding: try JSONEncoder().encode(conversation), as: UTF8.self)
         try db.writer.write { conn in
-            try conn.execute(sql: "INSERT INTO app_conversations VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at, payload = excluded.payload",
-                             arguments: [conversation.id, conversation.updatedAt, payload])
+            try conn.execute(sql: "INSERT INTO app_conversations (id, updated_at, payload, project_id) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at, payload = excluded.payload",
+                             arguments: [conversation.id, conversation.updatedAt, payload, conversation.projectID])
         }
     }
 
@@ -174,6 +207,7 @@ public struct ChatStore: Sendable {
     public func deleteConversation(_ conversationID: String) throws {
         try db.writer.write { conn in
             try conn.execute(sql: "DELETE FROM app_conversations WHERE id = ?", arguments: [conversationID])
+            try ProjectStore.removeFromProposals("conversation:\(conversationID)", conn)
             try conn.execute(sql: "UPDATE app_automations SET payload = json_remove(payload, '$.lastConversationID') WHERE json_extract(payload, '$.lastConversationID') = ?", arguments: [conversationID])
         }
     }
@@ -261,7 +295,7 @@ public struct ChatStore: Sendable {
         let payload = String(decoding: try encoder.encode(conversation), as: UTF8.self)
         let records = try [user, answer].map { ($0, String(decoding: try encoder.encode($0), as: UTF8.self)) }
         try db.writer.write { conn in
-            try conn.execute(sql: "INSERT INTO app_conversations VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at, payload = excluded.payload", arguments: [conversation.id, conversation.updatedAt, payload])
+            try conn.execute(sql: "INSERT INTO app_conversations (id, updated_at, payload, project_id) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at, payload = excluded.payload", arguments: [conversation.id, conversation.updatedAt, payload, conversation.projectID])
             for (message, json) in records {
                 try conn.execute(sql: "INSERT INTO app_messages VALUES (?, ?, ?, ?)", arguments: [message.id, message.conversationID, message.createdAt, json])
             }

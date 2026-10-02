@@ -15,6 +15,7 @@ struct ChatToolOutput: Sendable {
 public struct ChatTools: Sendable {
     let search: ContextSearch
     let scope: ChatScope
+    let library: LibraryStore
     let searchKey: String
     let searchModel: String
     let pluginToken: @Sendable (String) async throws -> String
@@ -23,7 +24,9 @@ public struct ChatTools: Sendable {
     /// Returns: 채팅 한 번에 사용할 읽기 도구 모음.
     /// Raises: 없음.
     public init(db: WGDatabase, scope: ChatScope, searchKey: String = "", searchModel: String = "", pluginToken: @escaping @Sendable (String) async throws -> String = { _ in "" }) {
-        search = ContextSearch(db); self.scope = scope; self.searchKey = searchKey; self.searchModel = searchModel; self.pluginToken = pluginToken
+        search = ContextSearch(db, projectID: scope.projectID, includeActivity: scope.useActivity)
+        library = LibraryStore(db)
+        self.scope = scope; self.searchKey = searchKey; self.searchModel = searchModel; self.pluginToken = pluginToken
     }
 
     /// Args: name·description은 도구 설명, fields는 문자열 인자 설명이다.
@@ -38,10 +41,16 @@ public struct ChatTools: Sendable {
 
     var specs: [ToolSpec] {
         var tools: [ToolSpec] = []
-        if scope.useActivity {
+        if scope.useActivity || scope.projectID != nil {
             tools += [
-                Self.spec("search_context", "전체 기간의 업무, 화면 요약, 화면 원문, 사용자의 AI 도구 요청을 검색한다. 짧은 핵심어로 검색하고 필요하면 다른 표현으로 다시 찾는다.", ["query": "핵심 검색어. 빈 문자열은 최근 기록", "from": "시작일 YYYY-MM-DD, 제한 없으면 빈 문자열", "to": "종료일 YYYY-MM-DD, 제한 없으면 빈 문자열"]),
-                Self.spec("read_context", "검색한 기록의 상세 내용 또는 그래프 노드와 연결된 자료를 읽는다.", ["id": "검색 결과의 id"]),
+                Self.spec("search_context", "허용된 업무·대화·결과물의 전체 기록을 검색한다. 프로젝트 전용 기록은 소속 밖에서 읽지 않는다. 현재 프로젝트의 대화를 우선한다.", ["query": "핵심 검색어. 빈 문자열은 최근 기록", "from": "시작일 YYYY-MM-DD, 제한 없으면 빈 문자열", "to": "종료일 YYYY-MM-DD, 제한 없으면 빈 문자열"]),
+                Self.spec("read_context", "검색한 원문을 이어 읽는다. 긴 대화는 메시지 ID로 원문을 읽는다.", ["id": "검색 결과의 id", "start": "대화는 시작 메시지 번호, 메시지는 시작 문자 위치. 처음이면 1"]),
+            ]
+        }
+        if !scope.libraryIDs.isEmpty || scope.useActivity || scope.projectID != nil {
+            tools += [
+                Self.spec("search_library", "이 대화의 첨부와 기억 범위에서 허용된 프로젝트 자료·이전 결과물을 검색한다. 다른 대화의 전용 첨부는 읽지 않는다.", ["query": "핵심 검색어. 빈 문자열은 자료 목록"]),
+                Self.spec("read_library", "연결한 보관 자료의 추출된 원문을 이어 읽는다.", ["id": "검색 결과의 library ID", "start": "시작 문자 위치. 처음이면 1"]),
             ]
         }
         if !scope.paths.isEmpty {
@@ -89,7 +98,9 @@ public struct ChatTools: Sendable {
             let from = try Self.date(args["from"] ?? "", fallback: 0)
             let to = try Self.date(args["to"] ?? "", fallback: Date().timeIntervalSince1970, endOfDay: true)
             return try Self.output(search.search(query: args["query"] ?? "", from: from, to: to))
-        case "read_context": return try Self.output(search.read(args["id"] ?? ""))
+        case "read_context": return try Self.output(search.read(args["id"] ?? "", start: Int(args["start"] ?? "1") ?? 1))
+        case "search_library": return try Self.output(library.search(args["query"] ?? "", ids: currentLibraryIDs()))
+        case "read_library": return try Self.output([library.read(args["id"] ?? "", ids: currentLibraryIDs(), start: Int(args["start"] ?? "1") ?? 1)])
         case "list_files": return .init(text: try listFiles(path: args["path"] ?? "", query: args["query"] ?? ""))
         case "read_file": return try Self.output([readFile(path: args["path"] ?? "", start: Int(args["start"] ?? "1") ?? 1)])
         case "inspect_repository", "read_revision":
@@ -123,6 +134,30 @@ public struct ChatTools: Sendable {
         case "notion_read": return try await notionRead(args["id"] ?? "")
         default: throw ChatToolError.unavailable("알 수 없는 도구입니다.")
         }
+    }
+
+    /// 중요한 저장 자료와 질문에 맞는 과거 기록을 첫 요청부터 제공한다. 원문 추가 조회는 도구로 이어간다.
+    func rememberedSources(history: [ConversationMessage]) throws -> [ChatSource] {
+        let query = history.last(where: { $0.role == "user" })?.text ?? ""
+        let recentIDs = Set(history.suffix(16).map { "message:\($0.id)" })
+        let records = scope.useActivity || scope.projectID != nil ? try search.search(query: query).filter { !recentIDs.contains($0.id) } : []
+        let ids = try currentLibraryIDs()
+        let ownIDs = ids.filter { scope.libraryIDs.contains($0) }
+        let notes = try library.search("", ids: ownIDs, notesOnly: true)
+        let ownFiles = try library.search(query, ids: ownIDs)
+        let files = try library.search(query, ids: ids)
+        var seen: Set<String> = []
+        return Array((notes + ownFiles + records.filter { $0.id.hasPrefix("message:") } + files + records.filter { !$0.id.hasPrefix("message:") })
+            .filter { seen.insert($0.id).inserted }.prefix(12))
+    }
+
+    private func currentLibraryIDs() throws -> [String] {
+        var ids = Set(scope.libraryIDs)
+        if let conversationID = scope.conversationID {
+            ids.formIntersection(try library.sourceIDs(conversationID: conversationID, projectID: scope.projectID))
+        }
+        if scope.useActivity || scope.projectID != nil { ids.formUnion(try search.projectSourceIDs()) }
+        return Array(ids)
     }
 
     /// Args: path는 모델이 지정한 절대 경로이다.
