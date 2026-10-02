@@ -6,6 +6,11 @@ import GRDB
 public final class WGDatabase: @unchecked Sendable {
     public let writer: any DatabaseWriter
     public let path: String?
+    private let memoryLibraryID = UUID().uuidString
+    public var libraryDirectory: URL {
+        path.map { URL(fileURLWithPath: $0).deletingLastPathComponent().appendingPathComponent("library", isDirectory: true) }
+            ?? FileManager.default.temporaryDirectory.appendingPathComponent("Sillog-library-\(memoryLibraryID)", isDirectory: true)
+    }
 
     public init(path: String) throws {
         let dir = (path as NSString).deletingLastPathComponent
@@ -290,6 +295,9 @@ public final class WGDatabase: @unchecked Sendable {
             """)
         }
         ChatStore.migrate(&migrator)
+        ProjectStore.migrate(&migrator)
+        LibraryStore.migrate(&migrator)
+        ContextSearch.migrate(&migrator)
         return migrator
     }
 }

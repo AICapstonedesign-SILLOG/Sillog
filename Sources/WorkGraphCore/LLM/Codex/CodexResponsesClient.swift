@@ -12,6 +12,18 @@ public struct CodexModel: Equatable, Sendable, Identifiable {
     }
 }
 
+/// 모델 연결 검사에서 성공한 후보와 확인 실패를 모은 결과.
+public struct CodexModelVerification: Sendable {
+    public struct Failure: Sendable {
+        public let model: CodexModel
+        public let message: String
+    }
+    public let models: [CodexModel]
+    public let failures: [Failure]
+    /// 중단 없이 모든 후보를 확인했는지.
+    public let isComplete: Bool
+}
+
 /// ChatGPT 구독의 Codex 사용량. Codex CLI 의 /status 와 같은 출처다.
 public struct CodexUsage: Equatable, Sendable {
     public struct Window: Equatable, Sendable {
@@ -49,7 +61,7 @@ public final class CodexResponsesClient: LLMClient, @unchecked Sendable {
     public static let modelsEndpoint = URL(string: "https://chatgpt.com/backend-api/codex/models")!
     /// 가벼운 배치 작업용 기본 모델. 계정마다 쓸 수 있는 모델이 다르므로 목록은 listModels 로 받아 온다.
     public static let defaultModel = "gpt-5.6-luna"
-    /// 모델 목록 API 가 요구하는 값. Codex CLI 버전 형식이어야 한다.
+    /// CLI 없이 정리 기능만 사용할 때의 모델 목록 API 호환 버전.
     static let clientVersion = "0.155.1"
 
     public static let usageEndpoint = URL(string: "https://chatgpt.com/backend-api/wham/usage")!
@@ -78,12 +90,13 @@ public final class CodexResponsesClient: LLMClient, @unchecked Sendable {
         return CodexUsage(planType: root["plan_type"] as? String, primary: window(limits?["primary_window"]), secondary: window(limits?["secondary_window"]))
     }
 
-    /// 이 계정에서 쓸 수 있는 모델 (목록에 보이도록 표시된 것만, 서버가 준 우선순위 순).
+    /// 서버의 모델 후보 목록. 목록에 있어도 현재 연결에서 실제 요청을 지원한다는 보장은 없다.
     public static func listModels(auth: any CodexCredentialProviding, session: URLSession = .shared) async throws -> [CodexModel] {
         let credentials: CodexCredentials
         do { credentials = try await auth.credentials() } catch let error as CodexAuthError { throw LLMError.auth(error.description) }
         var components = URLComponents(url: modelsEndpoint, resolvingAgainstBaseURL: false)!
-        components.queryItems = [URLQueryItem(name: "client_version", value: clientVersion)]
+        let runtimeVersion = await Task.detached { CodexRuntime.clientVersion() }.value
+        components.queryItems = [URLQueryItem(name: "client_version", value: runtimeVersion ?? clientVersion)]
         var request = URLRequest(url: components.url!)
         request.timeoutInterval = 20
         request.setValue("Bearer \(credentials.accessToken)", forHTTPHeaderField: "Authorization")
@@ -103,6 +116,35 @@ public final class CodexResponsesClient: LLMClient, @unchecked Sendable {
                 return CodexModel(slug: slug, displayName: item["display_name"] as? String ?? slug,
                                   defaultEffort: item["default_reasoning_level"] as? String)
             }
+    }
+
+    /// 성공한 후보와 확인 실패를 함께 반환한다. 인증·사용량 오류는 보고한 뒤 추가 요청을 멈춘다.
+    public static func verifyModels(_ models: [CodexModel], check: (CodexModel) async throws -> Void) async throws -> CodexModelVerification {
+        var available: [CodexModel] = []
+        var failures: [CodexModelVerification.Failure] = []
+        var isComplete = true
+        for model in models {
+            try Task.checkCancellation()
+            do {
+                try await check(model)
+                try Task.checkCancellation()
+                available.append(model)
+            } catch {
+                try Task.checkCancellation()
+                if error is CancellationError { throw error }
+                let description = (error as? LLMError)?.description ?? (error as? CodexAuthError)?.description ?? error.localizedDescription
+                let message = description.lowercased()
+                if message.contains("model"), message.contains("not supported") || message.contains("model_not_found")
+                    || message.contains("requires a newer version of codex") { continue }
+                failures.append(.init(model: model, message: description))
+                if error is CodexAuthError { isComplete = false; break }
+                if let error = error as? LLMError {
+                    if case .auth = error { isComplete = false; break }
+                    if case .http(let status, _) = error, [401, 403, 429].contains(status) { isComplete = false; break }
+                }
+            }
+        }
+        return CodexModelVerification(models: available, failures: failures, isComplete: isComplete)
     }
 
     let auth: any CodexCredentialProviding
@@ -197,6 +239,7 @@ public final class CodexResponsesClient: LLMClient, @unchecked Sendable {
         var deltas: [String: String] = [:], deltaOrder: [String] = []
         var text = "", failure: String?
         var model = fallbackModel, promptTokens = 0, completionTokens = 0
+        var completed = false
 
         for line in raw.split(whereSeparator: \.isNewline) {
             guard line.hasPrefix("data:") else { continue }
@@ -216,6 +259,7 @@ public final class CodexResponsesClient: LLMClient, @unchecked Sendable {
             case "response.output_text.delta":
                 text += event["delta"] as? String ?? ""
             case "response.completed":
+                completed = true
                 let response = event["response"] as? [String: Any]
                 if let name = response?["model"] as? String { model = name }
                 let usage = response?["usage"] as? [String: Any]
@@ -232,12 +276,13 @@ public final class CodexResponsesClient: LLMClient, @unchecked Sendable {
             }
         }
 
+        if let failure { throw LLMError.backend(failure) }
+        guard completed else { throw LLMError.backend("응답이 완료되기 전에 연결이 종료되었습니다.") }
         for candidate in completedArguments + deltaOrder.compactMap({ deltas[$0] }) + [text] {
             if let json = OpenAICompatClient.extractJSON(from: candidate), let data = json.data(using: .utf8) {
                 return LLMResult(arguments: data, model: model, promptTokens: promptTokens, completionTokens: completionTokens, raw: raw)
             }
         }
-        if let failure { throw LLMError.backend(failure) }
         throw LLMError.noJSON(String((text.isEmpty ? raw : text).prefix(300)))
     }
 }

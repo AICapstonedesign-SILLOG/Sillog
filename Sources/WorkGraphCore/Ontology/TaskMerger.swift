@@ -84,10 +84,22 @@ public struct TaskMerger: Sendable {
     static func merge(_ group: Group, conn: Database, now: Double) throws -> Int {
         let tx = GraphTx(conn)
         guard let keep = try tx.node(label: NodeLabel.task, key: group.keep) else { return 0 }
+        let pending = Set(try ProjectStore.proposals(conn).flatMap { $0.items.map(\.id) })
+        guard !pending.contains("task:\(keep.id)") else { return 0 }
         var accumulated = keep.props
         var merged = 0
         for key in group.merge {
             guard let victim = try tx.node(label: NodeLabel.task, key: key), victim.id != keep.id else { continue }
+            guard !pending.contains("task:\(victim.id)") else { continue }
+            let keepProject = try String.fetchOne(conn, sql: "SELECT project_id FROM project_tasks WHERE task_id = ?", arguments: [keep.id])
+            let victimProject = try String.fetchOne(conn, sql: "SELECT project_id FROM project_tasks WHERE task_id = ?", arguments: [victim.id])
+            if let keepProject, let victimProject, keepProject != victimProject { continue }
+            if keepProject != victimProject,
+               try Bool.fetchOne(conn, sql: "SELECT EXISTS(SELECT 1 FROM project_reviewed WHERE item_id IN (?, ?) AND decision = 'manual')",
+                                 arguments: ["task:\(keep.id)", "task:\(victim.id)"]) == true { continue }
+            if keepProject == nil, let victimProject {
+                try conn.execute(sql: "INSERT INTO project_tasks VALUES (?, ?)", arguments: [keep.id, victimProject])
+            }
             // 행 판단
             try conn.execute(sql: "UPDATE observations SET task_id = ? WHERE task_id = ?", arguments: [keep.id, victim.id])
             try conn.execute(sql: "UPDATE chat_messages SET task_id = ? WHERE task_id = ?", arguments: [keep.id, victim.id])
@@ -108,6 +120,7 @@ public struct TaskMerger: Sendable {
             if !tally.isEmpty { props["project_seconds"] = .object(tally) }
             try tx.setProps(nodeId: keep.id, props, at: now)
             accumulated.merge(props) { _, new in new }
+            try ProjectStore.mergeTask(victim.id, into: keep.id, conn)
             try conn.execute(sql: "DELETE FROM edges WHERE src = ? OR dst = ?", arguments: [victim.id, victim.id])
             try conn.execute(sql: "DELETE FROM nodes WHERE id = ?", arguments: [victim.id])
             merged += 1

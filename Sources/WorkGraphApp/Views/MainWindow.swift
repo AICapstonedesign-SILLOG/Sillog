@@ -3,7 +3,7 @@ import WorkGraphCore
 
 struct MainWindow: View {
     enum Tab: String, CaseIterable, Identifiable {
-        case graph = "그래프", tasks = "업무", files = "파일", activity = "활동 로그", chat = "채팅", settings = "설정"
+        case graph = "그래프", tasks = "업무", files = "파일", library = "보관함", activity = "활동 로그", chat = "채팅", settings = "설정"
         var id: String { rawValue }
     }
 
@@ -13,6 +13,7 @@ struct MainWindow: View {
         switch ProcessInfo.processInfo.environment["WORKGRAPH_TAB"] {
         case "activity": return .activity
         case "files": return .files
+        case "library": return .library
         case "tasks": return .tasks
         case "settings": return .settings
         case "graph": return .graph
@@ -33,9 +34,10 @@ struct MainWindow: View {
                 case .graph: GraphWebView(version: state.graphVersion).ignoresSafeArea(edges: .bottom)
                 case .tasks: TasksView()
                 case .files: FilesView()
+                case .library: if let chat = state.chat { LibraryView(library: chat.library, projects: chat.projects) }
                 case .activity: ActivityLogView()
                 case .chat: if let chat = state.chat {
-                    ChatView(chat: chat, modelName: state.settings.chatModelName, openSettings: { state.selectedTab = .settings })
+                    ChatView(chat: chat, projects: chat.projects, library: chat.library, modelName: state.settings.chatModelName, openSettings: { state.selectedTab = .settings })
                 }
                 case .settings: SettingsView()
                 }

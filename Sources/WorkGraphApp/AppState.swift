@@ -25,6 +25,10 @@ final class AppState: ObservableObject {
     @Published var deviceCode: DeviceCode?
     @Published var codexMessage: String?
     @Published var codexModels: [CodexModel] = []
+    @Published var chatCodexModels: [CodexModel] = []
+    @Published var codexModelsLoading = false
+    @Published var codexModelsError: String?
+    @Published var chatCodexModelsError: String?
     @Published var codexUsage: CodexUsage?
     /// 로그인해야 쓸 수 있다. `.ready` 가 되기 전에는 수집기도 배치도 돌지 않는다.
     @Published var phase: AppPhase = .login
@@ -53,6 +57,8 @@ final class AppState: ObservableObject {
     private var tasks: [Task<Void, Never>] = []
     private let codexAuth = CodexAuthManager()
     private var loginTask: Task<Void, Never>?
+    private var codexModelTask: Task<Void, Never>?
+    private var codexModelTaskID: UUID?
     private var servicesRunning = false
     private var bootstrapLogged = false
     private let instanceLock = InstanceLock(databasePath: WGDatabase.defaultPath())
@@ -73,7 +79,8 @@ final class AppState: ObservableObject {
             self.db = database
             self.store = store
             self.coordinator = coordinator
-            self.chat = ChatState(db: database, makeClient: { [unowned self] in self.makeChatClient() })
+            self.chat = ChatState(db: database, makeClient: { [unowned self] in self.makeChatClient() },
+                                  makeProjectClient: { [unowned self] in self.makeClient() })
             let batcher = OntologyBatcher(db: database, llm: makeClient())
             self.batcher = batcher
             let cardsOn = settings.screenCards && settings.captureScreenshots
@@ -216,6 +223,7 @@ final class AppState: ObservableObject {
     func handleAuthLossIfNeeded() async {
         let status = await codexAuth.status()
         guard settings.llmProvider != "openai", status == .loggedOut, phase == .ready else { return }
+        cancelCodexModelLoading(clear: true)
         codexStatus = status
         codexMessage = "ChatGPT 연결이 끊겨 다시 로그인해야 합니다. 계정 설정에서 Codex 연결을 해제했거나 다른 곳에서 로그아웃하면 이렇게 됩니다."
         AppLog.write("로그인 무효화 감지 → 로그인 화면으로")
@@ -226,6 +234,7 @@ final class AppState: ObservableObject {
     func refreshCodexStatus() {
         Task {
             codexStatus = await codexAuth.status()
+            if codexStatus == .loggedOut { cancelCodexModelLoading(clear: true) }
             await loadCodexModels()
             await loadCodexUsage()
         }
@@ -236,23 +245,107 @@ final class AppState: ObservableObject {
         codexUsage = try? await CodexResponsesClient.fetchUsage(auth: codexAuth)
     }
 
-    /// 로그인돼 있으면 이 계정에서 쓸 수 있는 모델 목록을 받아 온다. 고른 모델이 목록에 없으면 기본값으로 되돌린다.
-    func loadCodexModels() async {
-        guard codexStatus != .loggedOut, let models = try? await CodexResponsesClient.listModels(auth: codexAuth), !models.isEmpty else { return }
-        codexModels = models
-        if !models.contains(where: { $0.slug == settings.codexModel }) {
-            settings.codexModel = models.first { $0.slug == CodexResponsesClient.defaultModel }?.slug ?? models[0].slug
-            applySettings()
+    /// 선택한 ChatGPT 연결만 확인한다. 취소된 검사 결과는 새 로그인·검사에 적용하지 않는다.
+    func loadCodexModels(force: Bool = false) async {
+        let checkBatch = settings.llmProvider == "codex" && (force || codexModels.isEmpty)
+        let checkChat = settings.chatProvider == "codex" && (force || chatCodexModels.isEmpty)
+        guard codexStatus != .loggedOut, !codexModelsLoading, checkBatch || checkChat else { return }
+        let id = UUID()
+        codexModelTaskID = id
+        codexModelsLoading = true
+        if checkBatch { codexModelsError = nil }
+        if checkChat { chatCodexModelsError = nil }
+        let task = Task { [self] in
+            defer {
+                if codexModelTaskID == id {
+                    codexModelsLoading = false
+                    codexModelTask = nil
+                    codexModelTaskID = nil
+                }
+            }
+            do {
+                let candidates = try await CodexResponsesClient.listModels(auth: codexAuth)
+                try Task.checkCancellation()
+                guard codexModelTaskID == id else { return }
+                guard !candidates.isEmpty else { throw LLMError.backend("모델 후보 목록이 비어 있습니다.") }
+                let auth = codexAuth
+                if checkBatch {
+                    let result = try await CodexResponsesClient.verifyModels(candidates) { model in
+                        let client = CodexResponsesClient(auth: auth, model: model.slug, reasoningEffort: "medium", timeout: 45)
+                        if case .failure(let error) = await client.selfTest() { throw error }
+                    }
+                    try Task.checkCancellation()
+                    guard codexModelTaskID == id else { return }
+                    codexModels = result.models
+                    codexModelsError = verificationError(result, empty: "현재 연결에서 사용할 수 있는 정리 모델이 없습니다.")
+                    if result.isComplete, let first = result.models.first,
+                       !result.models.contains(where: { $0.slug == settings.codexModel }),
+                       !result.failures.contains(where: { $0.model.slug == settings.codexModel }) {
+                        settings.codexModel = result.models.first { $0.slug == CodexResponsesClient.defaultModel }?.slug ?? first.slug
+                        applySettings()
+                    }
+                    if !result.isComplete {
+                        if checkChat { chatCodexModelsError = codexModelsError }
+                        return
+                    }
+                }
+                if checkChat {
+                    let result = try await CodexResponsesClient.verifyModels(candidates) { model in
+                        try await CodexAppServerClient(auth: auth, model: model.slug).checkConnection()
+                    }
+                    try Task.checkCancellation()
+                    guard codexModelTaskID == id else { return }
+                    chatCodexModels = result.models
+                    chatCodexModelsError = verificationError(result, empty: "현재 연결에서 사용할 수 있는 채팅 모델이 없습니다.")
+                    if result.isComplete, let first = result.models.first,
+                       !result.models.contains(where: { $0.slug == settings.chatCodexModel }),
+                       !result.failures.contains(where: { $0.model.slug == settings.chatCodexModel }) {
+                        settings.chatCodexModel = result.models.first { $0.slug == CodexResponsesClient.defaultModel }?.slug ?? first.slug
+                        applySettings()
+                    }
+                }
+            } catch is CancellationError {
+                // 로그아웃·연결 변경·중단으로 끝난 검사는 이전 결과를 덮어쓰지 않는다.
+            } catch {
+                guard codexModelTaskID == id, !Task.isCancelled else { return }
+                let message = "모델 확인 실패: \((error as? LLMError)?.description ?? error.localizedDescription)"
+                if checkBatch { codexModelsError = message }
+                if checkChat { chatCodexModelsError = message }
+            }
         }
-        if !models.contains(where: { $0.slug == settings.chatCodexModel }) {
-            settings.chatCodexModel = models.first { $0.slug == CodexResponsesClient.defaultModel }?.slug ?? models[0].slug
-            applySettings()
+        codexModelTask = task
+        await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+    }
+
+    private func verificationError(_ result: CodexModelVerification, empty: String) -> String? {
+        if !result.failures.isEmpty {
+            return result.failures.map { "\($0.model.displayName): \($0.message)" }.joined(separator: "\n")
         }
+        return result.models.isEmpty ? empty : nil
+    }
+
+    func cancelCodexModelLoading(clear: Bool = false) {
+        codexModelTask?.cancel()
+        codexModelTask = nil
+        codexModelTaskID = nil
+        codexModelsLoading = false
+        if clear {
+            codexModels = []
+            chatCodexModels = []
+            codexModelsError = nil
+            chatCodexModelsError = nil
+        }
+    }
+
+    func updateCodexModelProviders() {
+        cancelCodexModelLoading()
+        Task { await loadCodexModels() }
     }
 
     /// 기기 코드 로그인: 코드를 받아 클립보드에 넣고 브라우저를 연 뒤, 사용자가 승인할 때까지 기다린다.
     func startCodexLogin() {
         guard loginTask == nil else { return }
+        cancelCodexModelLoading(clear: true)
         codexMessage = nil
         loginTask = Task { [weak self] in
             guard let self else { return }
@@ -288,11 +381,11 @@ final class AppState: ObservableObject {
     }
 
     func logoutCodex() {
+        cancelCodexModelLoading(clear: true)
         Task {
             try? await codexAuth.logout()
             codexStatus = await codexAuth.status()
             codexMessage = nil
-            codexModels = []
             updatePhase()                                               // 로그아웃하면 수집을 멈추고 로그인 화면으로
         }
     }
@@ -321,7 +414,7 @@ final class AppState: ObservableObject {
             }
             break
         }
-        if applied { graphVersion += 1; refreshTasks() }
+        if applied { graphVersion += 1; refreshTasks(); chat?.projects.check() }
         refresh()
     }
 

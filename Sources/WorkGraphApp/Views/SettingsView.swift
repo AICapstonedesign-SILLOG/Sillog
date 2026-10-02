@@ -61,7 +61,7 @@ struct SettingsView: View {
                     TextField("서버 주소", text: $state.settings.llmBaseURL, prompt: Text("http://localhost:5010/v1"))
                     SecureField("API 키 (없으면 비워 둠)", text: $state.settings.llmAPIKey)
                 } else {
-                    codexLoginRows(model: $state.settings.codexModel)
+                    codexLoginRows(model: $state.settings.codexModel, models: state.codexModels, error: state.codexModelsError)
                 }
                 HStack {
                     Button("연결 확인") { Task { await state.testLLM() } }
@@ -81,7 +81,7 @@ struct SettingsView: View {
                     TextField("서버 주소", text: $state.settings.chatBaseURL)
                     SecureField("API 키 (없으면 비워 둠)", text: $state.settings.chatAPIKey)
                 } else {
-                    codexLoginRows(model: $state.settings.chatCodexModel)
+                    codexLoginRows(model: $state.settings.chatCodexModel, models: state.chatCodexModels, error: state.chatCodexModelsError)
                 }
                 HStack {
                     Button("채팅 연결 확인") { Task { await state.testChatLLM() } }.disabled(state.chatTesting)
@@ -99,6 +99,8 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .onChange(of: state.settings) { _, _ in state.applySettings() }
+        .onChange(of: state.settings.llmProvider) { _, _ in state.updateCodexModelProviders() }
+        .onChange(of: state.settings.chatProvider) { _, _ in state.updateCodexModelProviders() }
         .onAppear { state.refreshCodexStatus() }
         .task {
             // 로그인 항목 상태 조회는 수 초 걸릴 수 있는 동기 XPC 호출이라 메인 스레드 밖에서 읽는다.
@@ -109,10 +111,10 @@ struct SettingsView: View {
         }
     }
 
-    /// Args: model은 정리용 또는 채팅용 모델 선택 값이다.
+    /// Args: model은 선택 값, models는 해당 연결에서 확인한 모델, error는 검사 오류이다.
     /// Returns: 공유 로그인 상태와 독립적인 모델 선택 화면.
-    /// Raises: 없음. 인증 오류는 기존 상태 메시지에 표시한다.
-    @ViewBuilder private func codexLoginRows(model: Binding<String>) -> some View {
+    /// Raises: 없음. 검사 오류는 화면에 표시한다.
+    @ViewBuilder private func codexLoginRows(model: Binding<String>, models: [CodexModel], error: String?) -> some View {
         switch state.codexStatus {
         case .loggedIn(let email, let plan, _):
             HStack {
@@ -130,12 +132,28 @@ struct SettingsView: View {
                     }
                 }
             }
-            if state.codexModels.isEmpty {
-                TextField("모델", text: model, prompt: Text(CodexResponsesClient.defaultModel))
-            } else {
+            if !models.isEmpty {
                 Picker("모델", selection: model) {
-                    ForEach(state.codexModels) { Text($0.displayName).tag($0.slug) }
+                    if !models.contains(where: { $0.slug == model.wrappedValue }) {
+                        Text("\(model.wrappedValue) (확인되지 않음)").tag(model.wrappedValue).disabled(true)
+                    }
+                    ForEach(models) { Text($0.displayName).tag($0.slug) }
                 }
+                .disabled(state.codexModelsLoading)
+            }
+            HStack {
+                if state.codexModelsLoading {
+                    ProgressView().controlSize(.small)
+                    Text("사용 가능한 모델 확인 중…").font(.callout)
+                    Button("검사 중단") { state.cancelCodexModelLoading() }
+                } else {
+                    Button("모델 다시 확인") { Task { await state.loadCodexModels(force: true) } }
+                }
+            }
+            Text("개인 자료 없이 실제 응답을 확인합니다. 모델 사용량이 소량 발생합니다.")
+                .font(.caption).foregroundStyle(.secondary)
+            if let error {
+                Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled)
             }
         case .loggedOut:
             if let code = state.deviceCode {

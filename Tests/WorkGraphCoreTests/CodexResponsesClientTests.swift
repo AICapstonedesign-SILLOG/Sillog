@@ -126,6 +126,99 @@ final class CodexResponsesClientTests: XCTestCase {
         XCTAssertEqual(request.headers["Authorization"], "Bearer token_old")
     }
 
+    func testVerificationExcludesListedModelsRejectedByTheConnection() async throws {
+        let candidates = ["allowed", "unsupported", "also-allowed"].map {
+            CodexModel(slug: $0, displayName: $0, defaultEffort: nil)
+        }
+        let available = try await CodexResponsesClient.verifyModels(candidates) { model in
+            if model.slug == "unsupported" {
+                throw ChatToolError.unavailable(#"{"error":{"message":"The 'unsupported' model is not supported when using Codex with a ChatGPT account."}}"#)
+            }
+        }
+        XCTAssertEqual(available.models.map(\.slug), ["allowed", "also-allowed"])
+        XCTAssertTrue(available.failures.isEmpty)
+    }
+
+    func testVerificationReportsUsageLimitsAndPreservesPreviousSuccess() async throws {
+        let candidates = ["allowed", "limited", "untried"].map { CodexModel(slug: $0, displayName: $0, defaultEffort: nil) }
+        var checked: [String] = []
+        let result = try await CodexResponsesClient.verifyModels(candidates) { model in
+            checked.append(model.slug)
+            if model.slug == "limited" { throw LLMError.http(429, "usage limit exceeded") }
+        }
+        XCTAssertEqual(result.models.map(\.slug), ["allowed"])
+        XCTAssertEqual(result.failures.map { $0.model.slug }, ["limited"])
+        XCTAssertTrue(result.failures[0].message.contains("429"))
+        XCTAssertEqual(checked, ["allowed", "limited"])
+        XCTAssertFalse(result.isComplete)
+    }
+
+    func testVerificationContinuesAfterOneModelIsOverloaded() async throws {
+        let candidates = ["allowed", "overloaded", "also-allowed"].map { CodexModel(slug: $0, displayName: $0, defaultEffort: nil) }
+        let result = try await CodexResponsesClient.verifyModels(candidates) { model in
+            if model.slug == "overloaded" { throw LLMError.backend("model overloaded") }
+        }
+        XCTAssertEqual(result.models.map(\.slug), ["allowed", "also-allowed"])
+        XCTAssertEqual(result.failures.map { $0.model.slug }, ["overloaded"])
+        XCTAssertTrue(result.isComplete)
+    }
+
+    func testVerificationStopsAfterChatAuthenticationFails() async throws {
+        let candidates = ["first", "untried"].map { CodexModel(slug: $0, displayName: $0, defaultEffort: nil) }
+        var checked: [String] = []
+        let result = try await CodexResponsesClient.verifyModels(candidates) { model in
+            checked.append(model.slug)
+            throw CodexAuthError.notLoggedIn
+        }
+        XCTAssertEqual(checked, ["first"])
+        XCTAssertFalse(result.isComplete)
+        XCTAssertEqual(result.failures.first?.message, CodexAuthError.notLoggedIn.description)
+    }
+
+    func testCancelledVerificationDoesNotContinueToTheNextModel() async {
+        let candidates = ["first", "second"].map { CodexModel(slug: $0, displayName: $0, defaultEffort: nil) }
+        let (started, signal) = AsyncStream<Void>.makeStream()
+        let task = Task {
+            try await CodexResponsesClient.verifyModels(candidates) { model in
+                if model.slug == "second" { XCTFail("취소 후 다음 모델을 요청하면 안 됨") }
+                signal.yield(())
+                try await Task.sleep(nanoseconds: 10_000_000_000)
+            }
+        }
+        var iterator = started.makeAsyncIterator()
+        _ = await iterator.next()
+        task.cancel()
+        do { _ = try await task.value; XCTFail("취소된 검사가 결과를 반환하면 안 됨") }
+        catch { XCTAssertTrue(error is CancellationError) }
+    }
+
+    func testVerificationExcludesModelsRequiringANewerCLI() async throws {
+        let candidates = ["needs-upgrade", "allowed"].map {
+            CodexModel(slug: $0, displayName: $0, defaultEffort: nil)
+        }
+        let available = try await CodexResponsesClient.verifyModels(candidates) { model in
+            if model.slug == "needs-upgrade" {
+                throw ChatToolError.unavailable("The 'needs-upgrade' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.")
+            }
+        }
+        XCTAssertEqual(available.models.map(\.slug), ["allowed"])
+    }
+
+    func testPartialFunctionArgumentsDoNotMakeAFailedResponseSuccessful() {
+        let raw = sse([
+            #"{"type":"response.output_item.done","item":{"type":"function_call","arguments":"{\"ok\":true}"}}"#,
+            #"{"type":"response.failed","response":{"error":{"message":"model rejected"}}}"#,
+        ])
+        XCTAssertThrowsError(try CodexResponsesClient.parseEvents(raw, fallbackModel: "candidate")) { error in
+            XCTAssertEqual(error as? LLMError, .backend("model rejected"))
+        }
+    }
+
+    func testInterruptedResponseIsNotReportedAsVerified() {
+        let raw = sse([#"{"type":"response.output_item.done","item":{"type":"function_call","arguments":"{\"ok\":true}"}}"#])
+        XCTAssertThrowsError(try CodexResponsesClient.parseEvents(raw, fallbackModel: "candidate"))
+    }
+
     func testReadsUsageWindows() async throws {
         StubURLProtocol.reset([.init(status: 200, body: #"""
         {"plan_type":"plus","rate_limit":{"allowed":true,

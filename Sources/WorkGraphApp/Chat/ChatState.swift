@@ -6,6 +6,7 @@ import WorkGraphCore
 @MainActor
 final class ChatState: ObservableObject {
     @Published var conversations: [ChatConversation] = []
+    @Published var conversationPreviews: [String: String] = [:]
     @Published var current = ChatConversation()
     @Published var messages: [ConversationMessage] = []
     @Published var skills: [ChatSkill] = []
@@ -13,6 +14,8 @@ final class ChatState: ObservableObject {
     @Published var draft = ""
     @Published var error: String?
     @Published var activeMessage: ConversationMessage?
+    let projects: ProjectState
+    let library: LibraryState
     private let db: WGDatabase
     private let store: ChatStore
     private let makeClient: () -> ChatBackend
@@ -24,8 +27,19 @@ final class ChatState: ObservableObject {
     /// Args: db는 앱 DB, makeClient는 현재 설정으로 모델 연결을 생성한다.
     /// Returns: 저장된 대화와 스킬을 불러온 채팅 상태.
     /// Raises: 없음. 초기화 오류는 화면에 표시한다.
-    init(db: WGDatabase, makeClient: @escaping () -> ChatBackend) {
+    init(db: WGDatabase, makeClient: @escaping () -> ChatBackend, makeProjectClient: @escaping () -> any LLMClient) {
         self.db = db; self.store = ChatStore(db); self.makeClient = makeClient
+        projects = ProjectState(db: db, makeClient: makeProjectClient)
+        library = LibraryState(db: db)
+        library.onChange = { [weak self] in self?.projects.reload() }
+        projects.onChange = { [weak self] in
+            guard let self else { return }
+            do {
+                try self.reload()
+                if let saved = self.conversations.first(where: { $0.id == self.current.id }) { self.current.projectID = saved.projectID }
+                else if !self.projects.projects.contains(where: { $0.id == self.current.projectID }) { self.current.projectID = nil }
+            } catch { self.error = error.localizedDescription }
+        }
         do {
             try store.recoverInterruptedRuns()
             skills = try ChatSkill.load()
@@ -37,7 +51,9 @@ final class ChatState: ObservableObject {
     /// Args: 없음.
     /// Returns: 없음. 새 대화 작성 화면으로 이동한다.
     /// Raises: 없음.
-    func newConversation() { current = ChatConversation(); messages = []; draft = ""; error = nil }
+    func newConversation(projectID: String? = nil) {
+        current = ChatConversation(); current.projectID = projectID; messages = []; draft = ""; error = nil
+    }
 
     /// Args: conversation은 선택한 대화이다.
     /// Returns: 없음. 저장된 메시지와 진행 중인 응답을 표시한다.
@@ -71,6 +87,7 @@ final class ChatState: ObservableObject {
         do {
             try store.deleteConversation(conversation.id)
             try reload()
+            projects.reload()
             if current.id == conversation.id {
                 if let next = conversations.first { select(next) } else { newConversation() }
             }
@@ -82,7 +99,7 @@ final class ChatState: ObservableObject {
     /// Raises: 없음. 저장 오류는 화면에 표시한다.
     func saveScope() {
         guard conversations.contains(where: { $0.id == current.id }) else { return }
-        do { try store.save(current); try reload() } catch { self.error = error.localizedDescription }
+        do { try store.save(current); try reload(); projects.reload() } catch { self.error = error.localizedDescription }
     }
 
     /// Args: 없음.
@@ -95,6 +112,22 @@ final class ChatState: ObservableObject {
         guard panel.runModal() == .OK else { return }
         for url in panel.urls where !current.scope.paths.contains(url.path) { current.scope.paths.append(url.path) }
         saveScope()
+    }
+
+    func uploadFiles(projectWide: Bool = false) {
+        do {
+            try store.save(current); try reload()
+            let projectID = projectWide ? current.projectID : nil
+            library.importFiles(projectID: projectID, conversationID: projectID == nil ? current.id : nil)
+        } catch { self.error = error.localizedDescription }
+    }
+
+    func attachLibraryItem(_ item: ChatLibraryItem, projectWide: Bool = false) {
+        do {
+            try store.save(current); try reload()
+            if projectWide, let id = current.projectID { library.attach(item, projectID: id) }
+            else { library.attach(item, conversationID: current.id) }
+        } catch { self.error = error.localizedDescription }
     }
 
     /// Args: 없음.
@@ -117,7 +150,8 @@ final class ChatState: ObservableObject {
     func approve(_ message: ConversationMessage) {
         guard let proposal = message.automation, message.approvedAutomationID == nil else { return }
         do {
-            let job = ChatAutomation(proposal: proposal, conversation: current)
+            var job = ChatAutomation(proposal: proposal, conversation: current)
+            job.scope.libraryIDs = try library.store.sourceIDs(conversationID: current.id)
             var updated = message; updated.approvedAutomationID = job.id
             try store.approve(job, message: updated)
             replaceVisible(updated); try reload()
@@ -151,6 +185,8 @@ final class ChatState: ObservableObject {
     /// Raises: 없음. 로그인·앱 종료 시 stop으로 중단한다.
     func startScheduler() {
         guard scheduler == nil else { return }
+        projects.check()
+        library.collectExisting()
         titleTask = Task { [weak self] in
             guard let self else { return }
             await self.updateOldTitles()
@@ -166,7 +202,7 @@ final class ChatState: ObservableObject {
     /// Args: 없음.
     /// Returns: 없음. 예약 확인과 진행 중인 요청을 중단한다.
     /// Raises: 없음.
-    func stop() { scheduler?.cancel(); scheduler = nil; titleTask?.cancel(); titleTask = nil; cancel() }
+    func stop() { scheduler?.cancel(); scheduler = nil; titleTask?.cancel(); titleTask = nil; projects.stop(); cancel() }
 
     /// Args: text는 요청, conversation은 실행 범위, automationID가 있으면 승인된 예약 실행이다.
     /// Returns: 요청을 저장하고 시작했으면 true.
@@ -175,6 +211,8 @@ final class ChatState: ObservableObject {
         guard !running else { return false }
         do {
             var conversation = conversation
+            var scope = try ProjectStore(db).scope(for: conversation)
+            conversation.projectID = scope.projectID
             let previous = try store.messages(conversation.id)
             let needsTitle = previous.isEmpty && automationID == nil && conversation.title == "새 대화"
             conversation.updatedAt = Date().timeIntervalSince1970
@@ -183,17 +221,22 @@ final class ChatState: ObservableObject {
             let backend = makeClient()
             let searchKey: String, searchModel: String
             if case .model(let client as OpenAICompatClient) = backend,
-               client.baseURL.host == "api.openai.com", conversation.scope.useWeb {
+               client.baseURL.host == "api.openai.com", scope.useWeb {
                 searchKey = client.apiKey ?? ""; searchModel = client.model
             } else { searchKey = ""; searchModel = "" }
-            let tools = ChatTools(db: db, scope: conversation.scope,
+            try store.startTurn(conversation: conversation, user: user, answer: answer)
+            if automationID != nil {
+                let existing = Set(try library.store.items().map(\.id))
+                for id in conversation.scope.libraryIDs where existing.contains(id) { try library.store.attach(id, conversationID: conversation.id) }
+                scope.libraryIDs = try library.store.sourceIDs(conversationID: conversation.id, projectID: conversation.projectID)
+            }
+            let tools = ChatTools(db: db, scope: scope,
                                   searchKey: searchKey, searchModel: searchModel,
                                   pluginToken: { id in
                                       if id == "github" { return (try? await PluginAuth.accessToken(id)) ?? "" }
                                       return try await PluginAuth.accessToken(id)
                                   })
             let runner = ChatRunner(backend: backend, tools: tools)
-            try store.startTurn(conversation: conversation, user: user, answer: answer)
             try reload()
             if current.id == conversation.id { current = conversation; messages = previous + [user, answer] }
             activeMessage = answer; error = nil
@@ -201,7 +244,8 @@ final class ChatState: ObservableObject {
                 guard let self else { return }
                 var succeeded = false
                 do {
-                    let result = try await runner.run(history: previous + [user], skillID: conversation.skillID, allowAutomation: automationID == nil) { [weak self] event in
+                    let project = self.projects.projects.first(where: { $0.id == conversation.projectID })
+                    let result = try await runner.run(history: previous + [user], skillID: conversation.skillID, allowAutomation: automationID == nil, project: project) { [weak self] event in
                         await self?.receive(event)
                     }
                     try Task.checkCancellation()
@@ -222,6 +266,7 @@ final class ChatState: ObservableObject {
                 if let message = self.activeMessage {
                     self.replaceVisible(message)
                     do { try self.store.save(message) } catch { self.error = "응답 저장 실패: \(error.localizedDescription)"; succeeded = false }
+                    if succeeded { self.library.collect(message) }
                 }
                 if let automationID, var job = self.automations.first(where: { $0.id == automationID }) {
                     job.lastStatus = succeeded ? "완료" : "실패 또는 중단 — 다음 예약에 실행"
@@ -235,6 +280,7 @@ final class ChatState: ObservableObject {
                         self.applyTitle(title, to: conversation.id, replacing: "새 대화")
                     } catch { self.error = "대화 제목 생성 실패: \(error.localizedDescription)" }
                 }
+                if !Task.isCancelled { self.projects.check() }
             }
             return true
         } catch { self.error = error.localizedDescription; return false }
@@ -272,7 +318,10 @@ final class ChatState: ObservableObject {
     /// Args: 없음.
     /// Returns: 없음. 대화·예약 목록을 저장소와 맞춘다.
     /// Raises: DB·디코딩 오류.
-    private func reload() throws { conversations = try store.conversations(); automations = try store.automations() }
+    private func reload() throws {
+        conversations = try store.conversations(); conversationPreviews = try store.conversationPreviews()
+        automations = try store.automations()
+    }
 
     /// Args: title은 생성된 제목, id는 대상 대화, oldTitle은 덮어써도 되는 자동 제목이다.
     /// Returns: 없음. 사용자가 직접 변경한 제목은 유지한다.
@@ -311,6 +360,7 @@ final class ChatState: ObservableObject {
         guard var job = automations.filter({ $0.enabled && $0.nextRun <= now }).min(by: { $0.nextRun < $1.nextRun }) else { return }
         var conversation = ChatConversation()
         conversation.title = "예약 · \(job.title)"; conversation.scope = job.scope; conversation.skillID = job.skillID
+        conversation.projectID = job.scope.projectID
         job.nextRun = now + Double(job.intervalHours) * 3600
         job.lastStatus = "실행 중"; job.lastConversationID = conversation.id
         do {

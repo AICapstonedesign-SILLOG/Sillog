@@ -5,6 +5,7 @@ import SwiftUI
 struct ChatInput: NSViewRepresentable {
     @Binding var text: String
     @Binding var height: CGFloat
+    var minimumHeight: CGFloat = 56
     var onSend: () -> Void
 
     /// Args: context는 SwiftUI 연결 상태이다.
@@ -58,12 +59,12 @@ struct ChatInput: NSViewRepresentable {
         }
 
         /// Args: editor는 현재 입력창이다.
-        /// Returns: 없음. 내용에 맞춰 56~160pt 범위로 높이를 바꾼다.
+        /// Returns: 없음. 지정한 최소 높이부터 160pt까지 내용에 맞춰 높이를 바꾼다.
         /// Raises: 없음.
         func resize(_ editor: NSTextView) {
             guard let container = editor.textContainer, let layout = editor.layoutManager else { return }
             layout.ensureLayout(for: container)
-            let height = min(160, max(56, ceil(layout.usedRect(for: container).height) + 16))
+            let height = min(160, max(parent.minimumHeight, ceil(layout.usedRect(for: container).height) + 16))
             if parent.height != height { DispatchQueue.main.async { self.parent.height = height } }
         }
     }

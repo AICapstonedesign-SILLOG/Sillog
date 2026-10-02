@@ -1,5 +1,5 @@
 #!/bin/bash
-# release 빌드 → build/Sillog.app 번들 → 코드 서명.
+# release 빌드 → 코드 서명 → ~/Applications/Sillog.app 설치.
 # 서명 인증서를 고정해 두면 다시 빌드해도 macOS 권한(손쉬운 사용·화면 기록)이 유지된다.
 #   SIGN_IDENTITY="Apple Development: ..." scripts/make-app.sh   # 인증서 지정
 #   SIGN_IDENTITY=- scripts/make-app.sh                          # ad-hoc (빌드할 때마다 권한을 다시 줘야 함)
@@ -22,6 +22,7 @@ swift build --package-path "$STAGE_DIR" -c release --product WorkGraphApp --scra
 BIN_DIR="$(swift build --package-path "$STAGE_DIR" -c release --show-bin-path --scratch-path "$BUILD_DIR" --cache-path "$BUILD_DIR/cache" --config-path "$BUILD_DIR/config" --security-path "$BUILD_DIR/security" --disable-sandbox)"
 APP="$BUILD_DIR/Sillog.app"
 APP_LINK="$ROOT/build/Sillog.app"
+INSTALLED_APP="$HOME/Applications/Sillog.app"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -99,8 +100,13 @@ else
   echo "서명: ad-hoc"
 fi
 
-mkdir -p "$ROOT/build"
+mkdir -p "$(dirname "$INSTALLED_APP")" "$ROOT/build"
+if [ "$APP" != "$INSTALLED_APP" ]; then
+  rm -rf "$INSTALLED_APP"
+  mv "$APP" "$INSTALLED_APP"
+fi
 rm -rf "$APP_LINK"
-ln -s "$APP" "$APP_LINK"
+ln -s "$INSTALLED_APP" "$APP_LINK"
+echo "설치: $INSTALLED_APP"
 echo "완성: $APP_LINK"
 echo "실행: open \"$APP_LINK\""
