@@ -13,9 +13,11 @@ public struct AssignmentPatch: Codable, Equatable, Sendable {
         public var match: String
         public var id: String?
         public var title: String?
+        /// 이 업무가 무엇을 위한 것인지 한 문장 (회사·과목·프로젝트, 마감·상대 등 맥락 포함)
+        public var goal: String?
         public var taskType: String?
 
-        enum CodingKeys: String, CodingKey { case ref, match, id, title, taskType = "task_type" }
+        enum CodingKeys: String, CodingKey { case ref, match, id, title, goal, taskType = "task_type" }
 
         public init(ref: String, match: String, id: String? = nil, title: String? = nil, taskType: String? = nil) {
             self.ref = ref; self.match = match; self.id = id; self.title = title; self.taskType = taskType
@@ -27,6 +29,7 @@ public struct AssignmentPatch: Codable, Equatable, Sendable {
             match = (try? c.decodeIfPresent(String.self, forKey: .match)) ?? (((try? c.decodeIfPresent(String.self, forKey: .id)) ?? nil) == nil ? "new" : "existing")
             id = try? c.decodeIfPresent(String.self, forKey: .id)
             title = try? c.decodeIfPresent(String.self, forKey: .title)
+            goal = try? c.decodeIfPresent(String.self, forKey: .goal)
             taskType = try? c.decodeIfPresent(String.self, forKey: .taskType)
         }
     }
@@ -210,6 +213,7 @@ public enum AssignmentSchema {
                         "match": .object(["type": "string", "enum": .array(["existing", "new"])]),
                         "id": .object(["type": "string", "description": "match=existing 일 때 OPEN_TASKS 의 id"]),
                         "title": .object(["type": "string", "description": "match=new 일 때: 과목·프로젝트와 만들거나 배우는 것을 담은 짧은 한국어 제목"]),
+                        "goal": .object(["type": "string", "description": "match=new 일 때 필수: 이 업무가 무엇을 위한 것인지 한국어 한 문장 (회사·과목·프로젝트, 행사·마감 등 맥락 포함. 예: 애커튼 테크놀로지 면접에서 발표할 직무 PT 준비). existing 인데 OPEN_TASKS 에 goal 이 없으면 채워도 됨"]),
                         "task_type": .object(["type": "string", "enum": .array(TBox.leafTaskTypes.map { .string($0) })]),
                     ]),
                     "required": .array(["ref", "match"]),

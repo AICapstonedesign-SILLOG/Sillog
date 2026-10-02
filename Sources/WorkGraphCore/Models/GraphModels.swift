@@ -89,11 +89,13 @@ public struct TaskDigest: Codable, Equatable, Sendable {
     public let apps: [String]
     /// 최근 세션들에서 무엇을 했는지 (최신 순, 한 문장씩). 같은 업무인지 가를 때 제목보다 확실한 텍스트 근거
     public let recentSummaries: [String]
+    /// 이 업무가 무엇을 위한 것인지 (업무가 생길 때 LLM 이 적은 한 문장)
+    public let goal: String?
 
     public init(id: String, title: String, taskType: String?, topics: [String], recentResources: [String], lastActive: Double,
-                resourceKeys: [String] = [], apps: [String] = [], recentSummaries: [String] = []) {
+                resourceKeys: [String] = [], apps: [String] = [], recentSummaries: [String] = [], goal: String? = nil) {
         self.id = id; self.title = title; self.taskType = taskType
         self.topics = topics; self.recentResources = recentResources; self.lastActive = lastActive
-        self.resourceKeys = resourceKeys; self.apps = apps; self.recentSummaries = recentSummaries
+        self.resourceKeys = resourceKeys; self.apps = apps; self.recentSummaries = recentSummaries; self.goal = goal
     }
 }

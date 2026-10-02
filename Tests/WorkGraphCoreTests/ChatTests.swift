@@ -176,7 +176,7 @@ final class ChatTests: XCTestCase {
         let csv = ChatArtifactHTML.render(.init(title: "표", format: "csv", content: "항목,값\nA,<B>"))
         XCTAssertTrue(csv.contains("<pre>항목,값\nA,&lt;B&gt;</pre>"))
         let json = ChatArtifactHTML.render(.init(title: "데이터", format: "json", content: #"{"value":"<B>"}"#))
-        XCTAssertTrue(json.contains(#"{"value":"&lt;B&gt;"}"#))
+        XCTAssertTrue(json.contains("{&quot;value&quot;:&quot;&lt;B&gt;&quot;}"))
     }
 
     /// Args: 없음.

@@ -130,6 +130,29 @@ final class ScreenCardBatchTests: XCTestCase {
         XCTAssertEqual(try ScreenCardStore(db).card(id: cards[0].id!)?.tsEnd, 550, "재사용하면 카드의 끝 시각이 늘어난다 (460 + 체류 상한 90)")
     }
 
+    func testReprocessingKeepsExistingCardsInsteadOfMakingNewOnes() async throws {
+        let db = try WGDatabase.inMemory()
+        let store = EventStore(db)
+        try await db.writer.write { try TBox.seed(GraphTx($0), at: 0) }
+        let shot = try jpeg("c.jpg", gray: 0.4)
+        for (ts, hash) in [(100.0, UInt64(0x0F0F)), (160, 0xFFFF_0000_FFFF_0000)] {        // 같은 창에서 스크롤: 두 화면
+            let id = try store.insert(Observation(ts: ts, trigger: "app_activate", appBundle: "com.apple.Preview", appName: "미리보기", windowTitle: "a.pdf"))
+            try store.attachScreen(observationId: id, path: shot, hash: hash)
+        }
+        _ = try store.insert(Observation(ts: 300, trigger: "app_activate", appBundle: "com.apple.Preview", appName: "미리보기", windowTitle: "b.txt"))
+        let answer = #"{"tasks":[{"ref":"A","match":"new","title":"읽기","task_type":"복습","goal":"읽기"}],"rows":[{"rows":"1-2","task":"A","resource":true,"reason":"r"}],"work":[]}"#
+        let llm = StubVisionLLM(assignAnswer: answer)
+        let make = { OntologyBatcher(db: db, llm: llm, home: "/Users/me", fileExists: { FileManager.default.fileExists(atPath: $0) }, clock: { 2_000 }) }
+        guard case .ok = await make().runIfDue(force: true) else { return XCTFail("첫 배치") }
+        let first = try ScreenCardStore(db).cards(from: 0, to: 10_000).count
+        XCTAssertEqual(llm.visionCalls, 1)
+        // 재생성처럼 판정만 지우고 다시 돈다 (card_id 는 남는다)
+        try await db.writer.write { try $0.execute(sql: "UPDATE observations SET batch_id = NULL, task_id = NULL") }
+        guard case .ok = await make().runIfDue(force: true) else { return XCTFail("두 번째 배치") }
+        XCTAssertEqual(llm.visionCalls, 1, "이미 연결된 카드를 쓰고 LLM 을 다시 부르지 않는다")
+        XCTAssertEqual(try ScreenCardStore(db).cards(from: 0, to: 10_000).count, first, "카드가 늘지 않는다")
+    }
+
     func testNonVisionLLMMakesNoCards() async throws {
         let db = try WGDatabase.inMemory()
         let store = EventStore(db)

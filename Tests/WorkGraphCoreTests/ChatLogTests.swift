@@ -161,7 +161,7 @@ final class ChatBatchTests: XCTestCase {
         let llm = StubLLM([.success("""
         {"tasks":[{"ref":"A","match":"new","title":"카드 UI","task_type":"코드작성"}],"rows":[{"rows":"1-5","task":"A"}],"work":[{"task":"A","summary":"s","topics":[]}]}
         """), .success("""
-        {"tasks":[{"ref":"A","match":"new","title":"다른 작업","task_type":"기타"}],"rows":[{"rows":"1","task":"A"}],"work":[{"task":"A","summary":"s","topics":[]}]}
+        {"tasks":[{"ref":"A","match":"new","title":"다른 작업","task_type":"기타"}],"rows":[{"rows":"1-2","task":"A"}],"work":[{"task":"A","summary":"s","topics":[]}]}
         """)])
         let batcher = OntologyBatcher(db: db, llm: llm, home: "/Users/me", fileExists: { _ in false }, clock: { 2_000 })
         guard case .ok = await batcher.runIfDue(force: true) else { return XCTFail("첫 배치 성공해야 함") }

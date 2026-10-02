@@ -24,9 +24,10 @@ public enum CardMaker {
     static let system = """
     You look at screenshots of the user's Mac and write one memory card per screenshot, for a personal work log that will later be searched ("where was that table I saw", "what did I do Tuesday afternoon", "how did I fix that error").
     Each screenshot shows the whole screen. The FRONT window is the one named in the screenshot's info line (app, window title, url or file); describe that window. Other windows are context only; do not describe them.
-    Write facts only. Do not guess why the user looked at it or which project it belongs to.
+    Write facts only: what is visible, not what it means. Do not guess why the user looked at it, what they are trying to achieve, or which project it belongs to. A topic mentioned on screen is not the user's activity: if a friend's message mentions an interview, the user is reading a message that mentions an interview, not preparing for one.
     For each screenshot:
-    - activity: one Korean sentence — what the user is doing in the front window (reading, writing, coding, chatting with an AI, watching, searching, filling a form …) and on what, naming the document, page or conversation.
+    - activity: one Korean sentence — the observable action in the front window (reading, writing, coding, chatting with an AI, watching, searching, filling a form …) and on what, naming the document, page or conversation partner. No purpose words ("~하기 위해", "~을 조율하고", "~을 준비하며") unless the screen literally shows that work being done.
+    - For chats and messages, quote the visible messages verbatim with the sender ("이름: 메시지") in content, most recent last. Do not paraphrase or summarize them.
     - content: 2-6 short lines of concrete, searchable content visible in the front window, in the original language: the document or page title, headings, key sentences, numbers and table values, code identifiers, commands and their output, error messages, questions the user typed. No UI chrome (menus, sidebars, tabs, toolbars).
     - kind: one of document, code, web, ai_chat, message, video, tool (settings, dashboards, file browsers, installers), none (nothing to read: lock screen, loading, blank).
     - entities: named things visible in the front window — documents (file names, document or page titles), people (names, handles), code (functions, classes, files, packages), errors (error messages), numbers (values with their meaning, e.g. "AUC 0.93"), links (URLs or site names). Empty lists when none.
@@ -107,7 +108,7 @@ public enum CardMaker {
         return (drafts, result)
     }
 
-    static func entitiesJSON(_ entities: [String: [String]]) -> String {
+    public static func entitiesJSON(_ entities: [String: [String]]) -> String {
         (try? JSONSerialization.data(withJSONObject: entities, options: [.sortedKeys])).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
     }
 }

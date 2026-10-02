@@ -243,7 +243,8 @@ public struct GraphTx {
                 """, arguments: [task.id])
             return TaskDigest(id: task.key, title: task.title, taskType: taskType, topics: topics,
                               recentResources: resources, lastActive: task.props["last_active"]?.doubleValue ?? task.updatedAt,
-                              resourceKeys: resourceKeys, apps: apps, recentSummaries: summaries)
+                              resourceKeys: resourceKeys, apps: apps, recentSummaries: summaries,
+                              goal: task.props["goal"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 })
         }
     }
 

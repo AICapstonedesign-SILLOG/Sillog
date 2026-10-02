@@ -184,6 +184,11 @@ public actor OntologyBatcher {
             split = try await db.writer.read { conn in
                 var reused: [(group: KeyframeSelector.Group, card: ScreenCard)] = [], fresh: [KeyframeSelector.Group] = []
                 for group in groups {
+                    // 1) 이 화면의 행들이 이미 카드에 연결돼 있으면 그 카드 (재생성, 재시도)
+                    if let linked = try ScreenCardStore.linkedCard(conn, observationIds: group.observationIds) {
+                        reused.append((group, linked)); continue
+                    }
+                    // 2) 같은 앱·제목·주소에 비슷한 화면의 최근 카드
                     let candidates = try ScreenCardStore.recentCards(conn, appBundle: group.appBundle, title: group.title, uri: group.uri, since: group.start - reuseWindow)
                     if let match = candidates.first(where: { KeyframeSelector.distance(UInt64(bitPattern: $0.screenHash), group.representative.hash) <= KeyframeSelector.sameScreenDistance }) {
                         reused.append((group, match))

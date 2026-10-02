@@ -55,7 +55,7 @@ final class OntologyBatcherTests: XCTestCase {
     func testSkipsWhenNothingToDoOrTooYoung() async throws {
         let db = try WGDatabase.inMemory()
         let clock = TestClock(200)
-        let llm = StubLLM([.success(patch.replacingOccurrences(of: "1-2", with: "1-3"))])
+        let llm = StubLLM([.success(patch)])
         let batcher = makeBatcher(db, llm, clock)
         guard case .skipped = await batcher.runIfDue(force: false) else { return XCTFail("미처리 없음이면 skipped") }
 
