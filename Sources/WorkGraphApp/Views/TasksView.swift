@@ -1,7 +1,7 @@
 import SwiftUI
 import WorkGraphCore
 
-/// 업무 탭: 업무 목록 → 세션 목록 → 다시 열기
+/// 업무 탭: 왼쪽 업무 목록, 오른쪽 업무 상세(세션 목록과 다시 열기). Figma 참고 TK-01, TK-02, TK-W1
 struct TasksView: View {
     @EnvironmentObject private var state: AppState
     @State private var selectedTask: Int64?
@@ -9,7 +9,8 @@ struct TasksView: View {
 
     private static let day: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "M/d HH:mm"
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.dateFormat = "M월 d일"
         return formatter
     }()
     private static let clock: DateFormatter = {
@@ -19,87 +20,272 @@ struct TasksView: View {
     }()
 
     var body: some View {
-        HSplitView {
-            VStack(spacing: 0) {
-                List(selection: $selectedTask) {
-                    ForEach(state.taskList) { task in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(task.title).lineLimit(1)
-                            if let projects = state.chat?.projects { ProjectAssignmentLabel(projects: projects, itemID: "task:\(task.id)") }
-                            Text("\(Self.duration(task.activeSeconds)) · 세션 \(task.sessionCount)개 · \(Self.day.string(from: Date(timeIntervalSince1970: task.lastActive)))")
-                                .font(.callout).foregroundStyle(.secondary)
-                        }
-                        .padding(.vertical, 2)
-                        .tag(task.id)
-                        .contextMenu {
-                            if let projects = state.chat?.projects {
-                                ProjectMoveMenu(projects: projects, itemID: "task:\(task.id)")
-                            }
-                        }
-                    }
-                }
-                if !state.offTaskToday.isEmpty {
-                    Divider()
-                    // 업무 외(집중 이탈): 업무·세션·자료 없이 시간만. 어떤 목표에도 기여하지 않았다고 판단된 행들
-                    let total = state.offTaskToday.reduce(0) { $0 + $1.seconds }
-                    let top = state.offTaskToday.prefix(3).map { "\($0.app) \(Self.duration($0.seconds))" }.joined(separator: ", ")
-                    Text("업무 외 오늘 \(Self.duration(total)) · \(top)")
-                        .font(.callout).foregroundStyle(.secondary).lineLimit(2)
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.vertical, 8)
-                }
-            }
-            .frame(minWidth: 280, idealWidth: 340, maxWidth: 420)
-
+        HStack(spacing: 0) {
+            sidebar.frame(width: 276)
+            Rectangle().fill(Brand.hairline).frame(width: 1)
             Group {
-                if let task = state.taskList.first(where: { $0.id == selectedTask }) {
-                    sessionList(task)
+                if state.taskList.isEmpty {
+                    emptyState
+                } else if let task = state.taskList.first(where: { $0.id == selectedTask }) {
+                    detail(task)
                 } else {
-                    ContentUnavailableView("업무를 고르세요", systemImage: "list.bullet.rectangle", description: Text("세션마다 그때 열었던 파일·페이지·앱을 다시 열 수 있습니다."))
+                    placeholder
                 }
             }
-            .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(.white)
         }
         .onAppear { state.refreshTasks(); reload() }
         .onChange(of: selectedTask) { _, _ in reload() }
         .onChange(of: state.graphVersion) { _, _ in state.refreshTasks(); reload() }
     }
 
-    private func sessionList(_ task: TaskSummary) -> some View {
+    // MARK: 왼쪽 목록
+
+    private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(task.title).font(.title3.weight(.semibold))
-                    Text([task.taskType, Self.duration(task.activeSeconds)].compactMap { $0 }.joined(separator: " · ")).font(.callout).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 0) {
+                Eyebrow("YOUR WORK")
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text("업무").font(Brand.suit(23, .semibold)).tracking(-0.8).foregroundStyle(Brand.ink)
+                    Text("\(state.taskList.count)").font(.custom("Jost-Light", size: 19)).foregroundStyle(Brand.gray)
                 }
+                .padding(.top, 8)
+                Text("흩어진 기록을 하나의 흐름으로").font(Brand.suit(11)).foregroundStyle(Brand.gray).padding(.top, 8)
+            }
+            .padding(.horizontal, 24).padding(.top, 27).padding(.bottom, 20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if state.taskList.isEmpty {
                 Spacer()
-                Button("업무 다시 열기") { state.prepareResume(taskId: task.id) }.buttonStyle(.borderedProminent)
-            }
-            .padding(16)
-            Divider()
-            List(sessions) { session in
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(Self.day.string(from: Date(timeIntervalSince1970: session.start)) + (session.end > session.start ? " – " + Self.clock.string(from: Date(timeIntervalSince1970: session.end)) : ""))
-                        Text(Self.duration(max(0, session.end - session.start))).font(.callout).foregroundStyle(.secondary)
+            } else {
+                ScrollView {
+                    VStack(spacing: 4) {
+                        ForEach(state.taskList) { task in taskRow(task) }
                     }
-                    .frame(width: 130, alignment: .leading)
-                    VStack(alignment: .leading, spacing: 3) {
-                        if session.summaries.isEmpty {
-                            Text(session.title).lineLimit(2)
-                        } else {
-                            ForEach(Array(session.summaries.prefix(4).enumerated()), id: \.offset) { _, line in
-                                Text("· " + line).lineLimit(2)
-                            }
-                            if session.summaries.count > 4 { Text("외 \(session.summaries.count - 4)개").font(.callout).foregroundStyle(.secondary) }
-                        }
-                        Text((session.apps.joined(separator: ", ") + (session.resourceCount > 0 ? " · 자료 \(session.resourceCount)개" : "")).trimmingCharacters(in: .whitespaces))
-                            .font(.callout).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    Spacer()
-                    Button("다시 열기") { state.prepareResume(sessionId: session.id) }.controlSize(.small)
+                    .padding(.horizontal, 12)
                 }
-                .padding(.vertical, 4)
             }
+            Rectangle().fill(Brand.hairline).frame(height: 1)
+            HStack(spacing: 7) {
+                Rectangle().fill(Brand.ink).frame(width: 4, height: 4)
+                Text("이 Mac에 저장된 업무 기록").font(Brand.suit(9)).foregroundStyle(Brand.gray)
+            }
+            .padding(.horizontal, 24).frame(height: 37)
+        }
+        .glassPanel(cornerRadius: 0)
+    }
+
+    private func taskRow(_ task: TaskSummary) -> some View {
+        let on = task.id == selectedTask
+        return Button { selectedTask = task.id } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Spacer()
+                    Text(task.taskType ?? "").font(Brand.suit(9)).foregroundStyle(Brand.gray)
+                }
+                .frame(height: 14)
+                Text(task.title).font(Brand.suit(13)).foregroundStyle(Brand.ink).lineLimit(1).padding(.top, 7)
+                if let projects = state.chat?.projects { ProjectAssignmentLabel(projects: projects, itemID: "task:\(task.id)") }
+                HStack(spacing: 0) {
+                    Text(Self.duration(task.activeSeconds) + " ")
+                    Text("/").foregroundStyle(Brand.sub)
+                    Text(" 세션 \(task.sessionCount)개")
+                    Spacer()
+                    if on { Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(Brand.gray) }
+                }
+                .font(Brand.suit(10)).foregroundStyle(Brand.tabText).padding(.top, 8)
+                Text(Self.lastActive(task.lastActive)).font(Brand.suit(9)).foregroundStyle(Brand.gray).padding(.top, 8)
+            }
+            .padding(.horizontal, 13).padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(on ? RoundedRectangle(cornerRadius: 5).fill(.white.opacity(0.64)) : nil)
+            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(on ? Brand.hairline : .clear))
+            .overlay(alignment: .leading) { if on { Rectangle().fill(Brand.ink).frame(width: 2).padding(.vertical, 14) } }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            if let projects = state.chat?.projects { ProjectMoveMenu(projects: projects, itemID: "task:\(task.id)") }
+        }
+    }
+
+    // MARK: 오른쪽 상세
+
+    /// TK-W5: 업무가 하나도 없을 때
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            Text("아직 업무가 없어요").font(Brand.suit(20, .bold)).foregroundStyle(Brand.ink)
+            Text("활동이 쌓여 정리되면 업무가 여기에 모여요. 지금 바로 정리할 수도 있어요.").font(Brand.suit(14)).foregroundStyle(Brand.gray)
+            Button("지금 정리") { Task { await state.runBatch(force: true) } }
+                .buttonStyle(BrandButtonStyle(kind: .primary))
+                .disabled(state.batchRunning).opacity(state.batchRunning ? 0.4 : 1)
+                .padding(.top, 16)
+        }
+    }
+
+    private var placeholder: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "square.3.stack.3d").font(.system(size: 30, weight: .light)).foregroundStyle(Brand.sub)
+            Text("업무를 골라 주세요").font(Brand.suit(20, .bold)).foregroundStyle(Brand.ink).padding(.top, 8)
+            Text("세션마다 그때 열었던 파일, 페이지, 앱을 다시 열 수 있어요.").font(Brand.suit(14)).foregroundStyle(Brand.gray)
+        }
+    }
+
+    private func detail(_ task: TaskSummary) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 10) {
+                        Eyebrow("WORK CONTEXT")
+                        if let type = task.taskType { BrandBadge(type) }
+                    }
+                    Text(task.title).font(Brand.suit(28, .semibold)).tracking(-1.26).foregroundStyle(Brand.ink).lineLimit(1).padding(.top, 14)
+                }
+                Spacer(minLength: 16)
+                Button { state.prepareResume(taskId: task.id) } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: "arrow.counterclockwise").font(.system(size: 12))
+                        Text("다시 열기")
+                    }
+                    .padding(.horizontal, 6)
+                }
+                .buttonStyle(BrandButtonStyle(kind: .primary))
+            }
+            .padding(.horizontal, 33).padding(.vertical, 30)
+            .frame(height: 155)
+            .overlay(alignment: .bottom) { Rectangle().fill(Brand.line).frame(height: 1) }
+
+            if !state.offTaskToday.isEmpty {
+                // 업무 외(집중 이탈): 업무, 세션, 자료 없이 시간만
+                let total = state.offTaskToday.reduce(0) { $0 + $1.seconds }
+                let top = state.offTaskToday.prefix(3).map { "\($0.app) \(Self.duration($0.seconds))" }.joined(separator: ", ")
+                Text("업무 외 오늘 \(Self.duration(total)), \(top)")
+                    .font(Brand.suit(11)).foregroundStyle(Brand.gray).lineLimit(1)
+                    .padding(.horizontal, 33).frame(height: 44, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
+                    .overlay(alignment: .bottom) { Rectangle().fill(Brand.line).frame(height: 1) }
+            }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    stats(task)
+                    HStack(alignment: .firstTextBaseline) {
+                        HStack(spacing: 6) {
+                            Text("작업 세션").font(Brand.suit(14)).foregroundStyle(Brand.ink)
+                            Text("\(sessions.count)").font(Brand.jost(12)).foregroundStyle(Brand.gray)
+                        }
+                        Spacer()
+                        Text("최근 활동 순").font(Brand.suit(10)).foregroundStyle(Brand.gray)
+                    }
+                    .padding(.vertical, 23)
+                    if sessions.isEmpty {
+                        VStack(spacing: 8) {
+                            Image(systemName: "square.3.stack.3d").font(.system(size: 26, weight: .light)).foregroundStyle(Brand.gray)
+                            Text("아직 기록된 세션이 없어요").font(Brand.suit(17, .medium)).foregroundStyle(Brand.ink).padding(.top, 6)
+                            Text("이 업무의 활동이 기록되면 시간과 사용한 자료를 함께 보여 드려요.").font(Brand.suit(12)).foregroundStyle(Brand.gray)
+                        }
+                        .frame(maxWidth: .infinity).padding(.vertical, 40)
+                    } else {
+                        ForEach(Array(sessions.enumerated()), id: \.element.id) { index, session in
+                            sessionRow(session, first: index == 0, last: index == sessions.count - 1)
+                        }
+                    }
+                }
+                .padding(.horizontal, 33).padding(.bottom, 24)
+            }
+        }
+    }
+
+    private func stats(_ task: TaskSummary) -> some View {
+        let minutes = Int(task.activeSeconds / 60)
+        return HStack(alignment: .top, spacing: 0) {
+            statCell("TIME SPENT", note: "누적 작업 시간", leading: false) {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    if minutes >= 60 {
+                        bigNumber("\(minutes / 60)"); unit("시간")
+                        bigNumber("\(minutes % 60)").padding(.leading, 6); unit("분")
+                    } else {
+                        bigNumber("\(minutes)"); unit("분")
+                    }
+                }
+            }
+            statCell("SESSIONS", note: "이어진 작업 세션", leading: true) {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    bigNumber(String(format: "%02d", task.sessionCount)); unit("개")
+                }
+            }
+            statCell("LAST ACTIVITY", note: "내 업무 기록", leading: true) {
+                Text(task.sessionCount == 0 ? "활동 없음" : Self.lastActive(task.lastActive))
+                    .font(Brand.suit(17)).foregroundStyle(Brand.ink).frame(height: 60)
+            }
+        }
+        .padding(.top, 28).padding(.bottom, 28)
+        .overlay(alignment: .bottom) { Rectangle().fill(Brand.line).frame(height: 1) }
+    }
+
+    private func bigNumber(_ text: String) -> some View {
+        Text(text).font(.custom("Jost-ExtraLight", size: 48)).foregroundStyle(Brand.ink)
+    }
+    private func unit(_ text: String) -> some View {
+        Text(text).font(Brand.suit(11)).foregroundStyle(Brand.gray)
+    }
+
+    private func statCell<Content: View>(_ eyebrow: String, note: String, leading: Bool, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Eyebrow(eyebrow)
+            content().frame(height: 60, alignment: .leading)
+            Text(note).font(Brand.suit(10)).foregroundStyle(Brand.gray).padding(.top, 0)
+        }
+        .padding(.leading, leading ? 29 : 0)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .leading) { if leading { Rectangle().fill(Brand.line).frame(width: 1) } }
+    }
+
+    private func sessionRow(_ session: SessionSummary, first: Bool, last: Bool) -> some View {
+        let start = Date(timeIntervalSince1970: session.start)
+        let range = Self.clock.string(from: start) + (session.end > session.start ? " — " + Self.clock.string(from: Date(timeIntervalSince1970: session.end)) : "")
+        let meta = [session.apps.joined(separator: ", "), session.resourceCount > 0 ? "자료 \(session.resourceCount)개" : ""].filter { !$0.isEmpty }
+        return HStack(alignment: .top, spacing: 18) {
+            ZStack(alignment: .top) {
+                if !last { Rectangle().fill(Brand.line).frame(width: 1).padding(.top, 7) }
+                RoundedRectangle(cornerRadius: 1).fill(first ? Brand.ink : .white)
+                    .overlay(RoundedRectangle(cornerRadius: 1).strokeBorder(first ? Brand.ink : Color(hex: 0xBDB5AE)))
+                    .frame(width: 7, height: 7).padding(.top, 7)
+            }
+            .frame(width: 9)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 14) {
+                    Text(Self.dayLabel(start)).font(Brand.suit(11, .medium)).foregroundStyle(Brand.tabText)
+                    Text(range).font(Brand.jost(12)).tracking(0.18).foregroundStyle(Brand.gray)
+                    Spacer()
+                    Text(Self.duration(max(0, session.end - session.start))).font(Brand.suit(12)).foregroundStyle(Brand.tabText)
+                }
+                if session.summaries.isEmpty {
+                    Text(session.title).font(Brand.suit(13)).foregroundStyle(Brand.tabText).lineLimit(2).padding(.top, 11)
+                } else {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(session.summaries.prefix(4).enumerated()), id: \.offset) { _, line in
+                            Text(line).font(Brand.suit(13)).foregroundStyle(Brand.tabText).lineLimit(2)
+                        }
+                        if session.summaries.count > 4 { Text("외 \(session.summaries.count - 4)개").font(Brand.suit(10)).foregroundStyle(Brand.gray) }
+                    }
+                    .padding(.top, 11)
+                }
+                HStack {
+                    Text(meta.joined(separator: "   |   ")).font(Brand.suit(10)).foregroundStyle(Brand.gray).lineLimit(1)
+                    Spacer()
+                    Button { state.prepareResume(sessionId: session.id) } label: {
+                        HStack(spacing: 6) {
+                            Text("다시 열기").font(Brand.suit(11))
+                            Image(systemName: "arrow.up.right").font(.system(size: 10))
+                        }
+                        .foregroundStyle(Brand.tabText)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.top, 12)
+            }
+            .padding(.bottom, 26)
         }
     }
 
@@ -108,6 +294,15 @@ struct TasksView: View {
     static func duration(_ seconds: Double) -> String {
         let minutes = Int(seconds / 60)
         return minutes >= 60 ? "\(minutes / 60)시간 \(minutes % 60)분" : "\(max(minutes, seconds > 0 ? 1 : 0))분"
+    }
+
+    private static func dayLabel(_ date: Date) -> String {
+        (Calendar.current.isDateInToday(date) ? "오늘, " : "") + day.string(from: date)
+    }
+
+    private static func lastActive(_ stamp: Double) -> String {
+        let date = Date(timeIntervalSince1970: stamp)
+        return (Calendar.current.isDateInToday(date) ? "오늘" : day.string(from: date)) + " " + clock.string(from: date)
     }
 }
 
@@ -124,50 +319,86 @@ struct ResumeSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("다시 열기").font(.headline)
-            Text(request.plan.title).lineLimit(2)
-            if request.plan.items.isEmpty {
-                Text("다시 열 수 있는 파일이나 페이지가 남아 있지 않습니다.").foregroundStyle(.secondary).padding(.vertical, 8)
-            } else {
-                List {
-                    Section("마지막에 하던 것") {
-                        ForEach($request.plan.items) { $item in
-                            if initiallySelected.contains(item.id) { row($item) }
-                        }
-                    }
-                    if request.plan.items.contains(where: { !initiallySelected.contains($0.id) }) {
-                        Section("그때 함께 열었던 것") {
-                            ForEach($request.plan.items) { $item in
-                                if !initiallySelected.contains(item.id) { row($item) }
-                            }
-                        }
-                    }
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Eyebrow("RESUME")
+                    Text("다시 열기").font(Brand.suit(22, .bold)).foregroundStyle(Brand.ink).padding(.top, 8)
+                    Text(request.plan.title).font(Brand.suit(12)).foregroundStyle(Brand.gray).lineLimit(2).padding(.top, 10)
                 }
-                .frame(minHeight: 220, maxHeight: 400)
+                Spacer()
+                Button { state.resumeRequest = nil } label: {
+                    Image(systemName: "xmark").font(.system(size: 12)).foregroundStyle(Brand.gray)
+                }
+                .buttonStyle(.plain)
             }
-            HStack {
+            .padding(.horizontal, 32).padding(.top, 26).padding(.bottom, 20)
+            Rectangle().fill(Brand.line).frame(height: 1)
+            if request.plan.items.isEmpty {
+                VStack(spacing: 14) {
+                    Image(systemName: "square.3.stack.3d").font(.system(size: 26, weight: .light)).foregroundStyle(Brand.sub)
+                    Text("다시 열 수 있는 파일이나 페이지가 남아 있지 않아요.").font(Brand.suit(13)).foregroundStyle(Brand.gray)
+                }
+                .frame(maxWidth: .infinity, minHeight: 195)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        group("마지막에 하던 것", selected: true)
+                        if request.plan.items.contains(where: { !initiallySelected.contains($0.id) }) {
+                            group("그때 함께 열었던 것", selected: false)
+                        }
+                    }
+                    .padding(.horizontal, 32).padding(.vertical, 6)
+                }
+                .frame(minHeight: 220, maxHeight: 375)
+            }
+            Rectangle().fill(Brand.line).frame(height: 1)
+            HStack(spacing: 8) {
                 Spacer()
                 Button("취소") { state.resumeRequest = nil }.keyboardShortcut(.cancelAction)
+                    .buttonStyle(BrandButtonStyle(kind: .secondary))
                 Button("열기 (\(request.plan.selectedItems.count)개)") { state.runResume(request.plan) }
-                    .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction).buttonStyle(BrandButtonStyle(kind: .primary))
                     .disabled(request.plan.selectedItems.isEmpty)
+                    .opacity(request.plan.selectedItems.isEmpty ? 0.4 : 1)
+            }
+            .padding(.horizontal, 24).frame(height: 63)
+            .background(Color(hex: 0xF6F5F4))
+        }
+        .frame(width: 600)
+        .background(.white)
+    }
+
+    private func group(_ title: String, selected: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title).font(Brand.suit(12, .medium)).foregroundStyle(Brand.gray).padding(.top, 14).padding(.bottom, 8)
+            ForEach($request.plan.items) { $item in
+                if initiallySelected.contains(item.id) == selected { row($item) }
             }
         }
-        .padding(20)
-        .frame(width: 520)
     }
 
     private func row(_ item: Binding<ResumePlan.Item>) -> some View {
-        Toggle(isOn: item.selected) {
-            HStack(spacing: 8) {
-                Image(systemName: icon(item.wrappedValue.kind)).frame(width: 16)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(item.wrappedValue.title).lineLimit(1)
-                    Text(detail(item.wrappedValue)).font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+        let on = item.wrappedValue.selected
+        return Button { item.selected.wrappedValue.toggle() } label: {
+            HStack(spacing: 14) {
+                RoundedRectangle(cornerRadius: 3).fill(on ? Brand.ink : .white)
+                    .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(on ? Brand.ink : Brand.line))
+                    .overlay { if on { Image(systemName: "checkmark").font(.system(size: 8, weight: .bold)).foregroundStyle(.white) } }
+                    .frame(width: 14, height: 14)
+                Image(systemName: icon(item.wrappedValue.kind)).font(.system(size: 12)).foregroundStyle(Brand.gray).frame(width: 16)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.wrappedValue.title).font(Brand.suit(13, .medium)).foregroundStyle(Brand.ink).lineLimit(1)
+                    Text(detail(item.wrappedValue)).font(Brand.suit(11)).foregroundStyle(Brand.gray).lineLimit(1).truncationMode(.middle)
                 }
+                Spacer()
             }
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .bottom) { Rectangle().fill(Brand.line).frame(height: 1) }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
     }
 
     private func icon(_ kind: ResumePlan.Kind) -> String {
@@ -186,6 +417,30 @@ struct ResumeSheet: View {
             NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle).map { FileManager.default.displayName(atPath: $0.path).replacingOccurrences(of: ".app", with: "") }
         }
         if item.kind == .app { return "앱 열기" }
-        return app.map { "\($0) · \(target)" } ?? target
+        return app.map { "\($0), \(target)" } ?? target
+    }
+}
+
+/// TK-W4 업무 불러오는 중. AppState에 상태가 생기면 쓴다
+private struct TasksLoadingView: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            ProgressView().controlSize(.small)
+            Text("업무를 불러오고 있어요").font(Brand.suit(14)).foregroundStyle(Brand.gray)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// TK-W6 업무를 불러오지 못할 때. AppState에 상태가 생기면 쓴다
+private struct TasksErrorView: View {
+    let retry: () -> Void
+    var body: some View {
+        VStack(spacing: 8) {
+            Text("업무를 불러오지 못했어요").font(Brand.suit(20, .bold)).foregroundStyle(Brand.ink)
+            Text("기록을 읽는 중에 문제가 생겼어요. 잠시 뒤 다시 시도해 주세요.").font(Brand.suit(14)).foregroundStyle(Brand.gray)
+            Button("다시 시도", action: retry).buttonStyle(BrandButtonStyle(kind: .secondary)).padding(.top, 16)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

@@ -26,7 +26,7 @@ let package = Package(
             name: "WorkGraphApp",
             dependencies: ["WorkGraphCore", "WorkGraphCollectors"],
             exclude: ["Resources/AppIcon.icns"],            // .app 번들에는 scripts/make-app.sh 가 직접 넣는다
-            resources: [.copy("Resources/graph"), .copy("Resources/PluginIcons")]
+            resources: [.copy("Resources/graph"), .copy("Resources/PluginIcons"), .copy("Resources/Brand")]
         ),
         .executableTarget(
             name: "wgctl",
