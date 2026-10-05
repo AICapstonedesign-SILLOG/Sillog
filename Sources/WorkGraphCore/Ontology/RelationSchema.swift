@@ -18,6 +18,7 @@ public struct ClassDefinition: Equatable, Sendable {
 public enum ClassSchema {
     public static let classes: [ClassDefinition] = [
         .init(label: NodeLabel.task, name: "업무", standardSuperclass: "prov:Activity", meaning: "하나의 목표를 가진 일. 여러 세션으로 이루어진다"),
+        .init(label: NodeLabel.theme, name: "분야", standardSuperclass: "skos:Concept", meaning: "업무를 묶는 넓은 분야. 업무는 분야 하나에 속한다"),
         .init(label: NodeLabel.session, name: "세션", standardSuperclass: "prov:Activity", meaning: "한 업무를 이어서 한 시간 구간"),
         .init(label: NodeLabel.resource, name: "자료", standardSuperclass: "prov:Entity", meaning: "본 것 또는 만든 것 (문서, 코드 파일, 웹페이지 …)"),
         .init(label: NodeLabel.app, name: "앱", standardSuperclass: "prov:SoftwareAgent", meaning: "활동에 쓴 프로그램"),
@@ -65,8 +66,8 @@ public struct RelationRule: Equatable, Sendable {
 
 public enum RelationSchema {
     public static let rules: [RelationRule] = [
-        .init(type: EdgeType.partOf, from: [NodeLabel.session], to: [NodeLabel.task],
-              meaning: "세션이 업무에 속한다", standard: "dcterms:isPartOf"),
+        .init(type: EdgeType.partOf, pairs: [RelationPair(NodeLabel.session, NodeLabel.task), RelationPair(NodeLabel.task, NodeLabel.theme)],
+              meaning: "세션이 업무에, 업무가 분야에 속한다", standard: "dcterms:isPartOf"),
         .init(type: EdgeType.instanceOf, pairs: [RelationPair(NodeLabel.task, NodeLabel.taskType), RelationPair(NodeLabel.resource, NodeLabel.resourceType)],
               meaning: "업무·자료가 어떤 종류인지", standard: "rdf:type"),
         .init(type: EdgeType.subclassOf, pairs: [RelationPair(NodeLabel.taskType, NodeLabel.taskType), RelationPair(NodeLabel.resourceType, NodeLabel.resourceType)],

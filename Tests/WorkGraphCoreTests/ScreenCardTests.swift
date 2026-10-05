@@ -101,7 +101,7 @@ final class ScreenCardBatchTests: XCTestCase {
         _ = try add(250, "memo.txt", hash: nil)                       // 사진 없음
         let answer = #"{"tasks":[{"ref":"A","match":"new","title":"강의 복습","task_type":"복습"}],"rows":[{"rows":"1-2","task":"A","resource":true,"reason":"강의자료"}],"work":[{"task":"A","summary":"강의자료를 읽었다","topics":["회귀"]}]}"#
         let llm = StubVisionLLM(assignAnswer: answer)
-        let batcher = OntologyBatcher(db: db, llm: llm, home: "/Users/me", fileExists: { FileManager.default.fileExists(atPath: $0) || $0.hasPrefix("/Users/me") }, clock: { 2_000 })
+        let batcher = OntologyBatcher(db: db, llm: llm, config: .singleCall, home: "/Users/me", fileExists: { FileManager.default.fileExists(atPath: $0) || $0.hasPrefix("/Users/me") }, clock: { 2_000 })
         guard case .ok = await batcher.runIfDue(force: true) else { return XCTFail("배치 성공해야 함") }
 
         XCTAssertEqual(llm.visionCalls, 1)
@@ -123,7 +123,7 @@ final class ScreenCardBatchTests: XCTestCase {
         _ = try add(400, "lecture.pdf", hash: 0xAAAA)
         _ = try add(460, "lecture.pdf", hash: 0xAAAA)
         _ = try add(700, "memo.txt", hash: nil)
-        let reuseBatcher = OntologyBatcher(db: db, llm: llm, home: "/Users/me", fileExists: { FileManager.default.fileExists(atPath: $0) || $0.hasPrefix("/Users/me") }, clock: { 3_000 })
+        let reuseBatcher = OntologyBatcher(db: db, llm: llm, config: .singleCall, home: "/Users/me", fileExists: { FileManager.default.fileExists(atPath: $0) || $0.hasPrefix("/Users/me") }, clock: { 3_000 })
         guard case .ok = await reuseBatcher.runIfDue(force: true) else { return XCTFail("두 번째 배치 성공해야 함") }
         XCTAssertEqual(llm.visionCalls, 1, "같은 화면은 재사용")
         XCTAssertEqual(try ScreenCardStore(db).cards(from: 0, to: 10_000).count, 1)
@@ -142,7 +142,7 @@ final class ScreenCardBatchTests: XCTestCase {
         _ = try store.insert(Observation(ts: 300, trigger: "app_activate", appBundle: "com.apple.Preview", appName: "미리보기", windowTitle: "b.txt"))
         let answer = #"{"tasks":[{"ref":"A","match":"new","title":"읽기","task_type":"복습","goal":"읽기"}],"rows":[{"rows":"1-2","task":"A","resource":true,"reason":"r"}],"work":[]}"#
         let llm = StubVisionLLM(assignAnswer: answer)
-        let make = { OntologyBatcher(db: db, llm: llm, home: "/Users/me", fileExists: { FileManager.default.fileExists(atPath: $0) }, clock: { 2_000 }) }
+        let make = { OntologyBatcher(db: db, llm: llm, config: .singleCall, home: "/Users/me", fileExists: { FileManager.default.fileExists(atPath: $0) }, clock: { 2_000 }) }
         guard case .ok = await make().runIfDue(force: true) else { return XCTFail("첫 배치") }
         let first = try ScreenCardStore(db).cards(from: 0, to: 10_000).count
         XCTAssertEqual(llm.visionCalls, 1)
@@ -161,7 +161,7 @@ final class ScreenCardBatchTests: XCTestCase {
         try store.attachScreen(observationId: id, path: shot, hash: 1)
         _ = try store.insert(Observation(ts: 200, trigger: "app_activate", appBundle: "com.apple.Preview", appName: "미리보기", windowTitle: "b.pdf"))
         let llm = StubLLM([.success(#"{"tasks":[],"rows":[{"rows":"1-2","task":"off"}],"work":[]}"#)])
-        let batcher = OntologyBatcher(db: db, llm: llm, home: "/Users/me", fileExists: { FileManager.default.fileExists(atPath: $0) }, clock: { 2_000 })
+        let batcher = OntologyBatcher(db: db, llm: llm, config: .singleCall, home: "/Users/me", fileExists: { FileManager.default.fileExists(atPath: $0) }, clock: { 2_000 })
         _ = await batcher.runIfDue(force: true)
         XCTAssertTrue(try ScreenCardStore(db).cards(from: 0, to: 10_000).isEmpty)
     }

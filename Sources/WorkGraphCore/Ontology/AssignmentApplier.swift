@@ -43,9 +43,15 @@ public struct AssignmentApplier: Sendable {
             }
         }
 
-        // 1. 업무
+        // 1. 업무: 행이 가리키는 것만 만든다. "off" 는 업무가 아니고, 업무 종류 이름뿐인 새 업무(예: 기타)는 목표가 아니라 분류라 그 행은 업무 외로 본다
+        let decided = patch.byRow()
+        let usedRefs = Set(decided.values.compactMap(\.task))
         var taskByRef: [String: Int64] = [:]
-        for def in patch.tasks where !def.ref.isEmpty {
+        var notGoalRefs = Set<String>()
+        for def in patch.tasks where !def.ref.isEmpty && def.ref != AssignmentPatch.offTask && usedRefs.contains(def.ref) {
+            var isExisting = false
+            if def.match == "existing", let id = def.id { isExisting = try tx.node(label: NodeLabel.task, key: id) != nil }
+            if !isExisting, Self.isCategory(def.title) { notGoalRefs.insert(def.ref); continue }
             let (id, created) = try resolveTask(def, tx: tx, now: now)
             if let id { taskByRef[def.ref] = id }
             // 목표 한 줄: 새 업무거나 아직 없으면 저장 (후보 목록·합치기 판단의 근거)
@@ -57,10 +63,9 @@ public struct AssignmentApplier: Sendable {
         }
 
         // 2. 행 배정
-        let decided = patch.byRow()
         if requireComplete {
             for decision in decided.values {
-                if let ref = decision.task, ref != AssignmentPatch.offTask, taskByRef[ref] == nil {
+                if let ref = decision.task, ref != AssignmentPatch.offTask, !notGoalRefs.contains(ref), taskByRef[ref] == nil {
                     throw ValidationError.unknownTask(ref)
                 }
             }
@@ -70,7 +75,7 @@ public struct AssignmentApplier: Sendable {
         for row in rows {
             guard let decision = decided[row.row] else { assignments.append(RowAssignment(row: row, taskId: nil, resource: true)); continue }
             covered += 1
-            if decision.task == AssignmentPatch.offTask {
+            if decision.task == AssignmentPatch.offTask || decision.task.map(notGoalRefs.contains) == true {
                 stats.offTaskRows += 1
                 assignments.append(RowAssignment(row: row, taskId: nil, resource: false, offTask: true, reason: decision.reason))
                 continue
@@ -169,7 +174,7 @@ public struct AssignmentApplier: Sendable {
         }
         let key = "t_\(StableHash.short("\(title)|\(Int(now))"))"
         let taskId = try tx.upsertNode(label: NodeLabel.task, key: key, subtype: nil, title: title,
-                                       props: ["status": "active", "started_at": .number(now)], at: now)
+                                       props: ["status": "active", "started_at": .number(now), "type_version": .number(Double(TBox.version))], at: now)
         let typeName = TBox.leafTaskTypes.contains(def.taskType ?? "") ? def.taskType! : TBox.fallbackTaskType
         if let typeNode = try tx.node(label: NodeLabel.taskType, key: typeName) {
             try tx.upsertEdge(src: taskId, dst: typeNode.id, type: EdgeType.instanceOf, props: [:], addWeight: 0, at: now, countHit: false)
@@ -179,5 +184,10 @@ public struct AssignmentApplier: Sendable {
 
     public static func normalizeTitle(_ title: String) -> String {
         title.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+
+    /// 제목이 업무 종류 이름 그대로면 목표가 아니라 분류다
+    public static func isCategory(_ title: String?) -> Bool {
+        TBox.leafTaskTypes.contains(normalizeTitle(title ?? ""))
     }
 }

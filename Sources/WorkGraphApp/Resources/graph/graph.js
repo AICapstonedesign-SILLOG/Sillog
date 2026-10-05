@@ -3,6 +3,7 @@
   'use strict';
 
   const GROUPS = {
+    Theme:       { name: '분야',        color: '#7c4dff' },
     Task:        { name: '업무',        color: '#a882ff' },
     Session:     { name: '세션',        color: '#7f8ea3' },
     ResourceRef: { name: '참고자료',    color: '#5aa9e6' },
@@ -17,7 +18,7 @@
   };
   const GROUP_ORDER = Object.keys(GROUPS);
   const OUTPUT_SUBTYPES = new Set(['CodeFile', 'Note', 'Document', 'Design']);
-  const LABEL_NAMES = { Task: '업무', Session: '세션', Resource: '자료', App: '앱', Topic: '주제', Problem: '문제', Project: '프로젝트',
+  const LABEL_NAMES = { Theme: '분야', Task: '업무', Session: '세션', Resource: '자료', App: '앱', Topic: '주제', Problem: '문제', Project: '프로젝트',
                         LaterItem: '나중에 할 일', File: '파일', Folder: '폴더', TaskType: '업무 종류', ResourceType: '자료 종류' };
   const EDGE_NAMES = {
     PART_OF:        ['속한 업무', '세션'],
@@ -35,6 +36,11 @@
     CREATED_DURING: ['만들어진 세션', '이때 만든 파일'],
     DERIVED_FROM:   ['출처', '여기서 받은 파일'],
   };
+  // 업무 → 분야 의 PART_OF 는 세션 → 업무 와 이름이 다르다
+  function edgeTitle(link, outgoing) {
+    if (link.type === 'PART_OF' && state.byId.get(link.target)?.label === 'Theme') return outgoing ? '분야' : '이 분야의 업무';
+    return (EDGE_NAMES[link.type] || [link.type, link.type])[outgoing ? 0 : 1];
+  }
   const LINK_DISTANCE = { PART_OF: 34, TOUCHED: 48, USED: 62, ABOUT: 58, SWITCHED_TO: 70, INSTANCE_OF: 80, SUBCLASS_OF: 40 };
   const SWITCH_COLORS = { drift: '242,102,94', blocked: '224,164,88', planned: '127,142,163', unknown: '127,142,163' };
   const TIME_PROPS = new Set(['start', 'end', 'last_active', 'started_at', 'at']);
@@ -87,7 +93,12 @@
     .cooldownTicks(reduceMotion ? 0 : 240)
     .d3VelocityDecay(0.35);
   Graph.d3Force('charge').strength(-120).distanceMax(460);
-  Graph.d3Force('link').distance(link => LINK_DISTANCE[link.type] || 55);
+  Graph.d3Force('link').distance(link => {
+    // 분야와 업무 사이는 넉넉히 띄운다 (업무 묶음이 분야 둘레에 퍼지게)
+    const target = typeof link.target === 'object' ? link.target : state.byId.get(link.target);
+    if (link.type === 'PART_OF' && target && target.label === 'Theme') return 90;
+    return LINK_DISTANCE[link.type] || 55;
+  });
 
   // 웹뷰는 크기가 0 인 채로 시작했다가 나중에 커진다. 크기가 바뀌면 (노드를 고르지 않은 동안은) 화면에 다시 맞춘다.
   let refitTimer = null;
@@ -156,11 +167,12 @@
     const emphasized = focus !== null && (node.id === focus || state.neighbors.has(node.id));
     let labelAlpha = 0;
     if (state.labels || emphasized || (state.matched && state.matched.has(node.id))) labelAlpha = 1;
+    else if (node.label === 'Theme') labelAlpha = Math.min(1, Math.max(0, (scale - 0.2) / 0.2));
     else if (node.label === 'Task') labelAlpha = Math.min(1, Math.max(0, (scale - 0.45) / 0.3));
     else labelAlpha = Math.min(1, Math.max(0, (scale - 1.5) / 0.7));
     if (labelAlpha > 0.02 && alpha > 0.5) {
-      const size = (node.label === 'Task' ? 12 : 10.5) / scale;
-      ctx.font = `${node.label === 'Task' ? 600 : 400} ${size}px -apple-system, "Apple SD Gothic Neo", sans-serif`;
+      const size = (node.label === 'Theme' ? 14 : node.label === 'Task' ? 12 : 10.5) / scale;
+      ctx.font = `${node.label === 'Theme' ? 700 : node.label === 'Task' ? 600 : 400} ${size}px -apple-system, "Apple SD Gothic Neo", sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
       ctx.globalAlpha = alpha * labelAlpha;
@@ -223,7 +235,7 @@
     for (const l of links) { degree.set(l.source, (degree.get(l.source) || 0) + 1); degree.set(l.target, (degree.get(l.target) || 0) + 1); }
     for (const n of allowed) {
       n.degreeVisible = degree.get(n.id) || 0;
-      n.r = (n.label === 'Task' ? 5 : 2.6) + Math.sqrt(n.degreeVisible) * 1.35;
+      n.r = (n.label === 'Theme' ? 8 : n.label === 'Task' ? 5 : 2.6) + Math.sqrt(n.degreeVisible) * 1.35;
     }
     state.visible = { nodes: allowed, links };
     Graph.graphData(state.visible);
@@ -370,7 +382,7 @@
       if (!outgoing && !incoming) continue;
       const other = state.byId.get(outgoing ? l.target : l.source);
       if (!other) continue;
-      const title = (EDGE_NAMES[l.type] || [l.type, l.type])[outgoing ? 0 : 1];
+      const title = edgeTitle(l, outgoing);
       if (!groups.has(title)) groups.set(title, []);
       groups.get(title).push({ other, link: l });
     }

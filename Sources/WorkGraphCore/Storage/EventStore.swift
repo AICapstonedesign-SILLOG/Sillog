@@ -194,6 +194,28 @@ public struct EventStore: Sendable {
         try db.writer.read { conn in try Double.fetchOne(conn, sql: "SELECT MIN(ts) FROM observations WHERE batch_id IS NULL") }
     }
 
+    /// 이 관측 바로 다음 관측의 시각 (처리 여부와 무관)
+    public func nextObservationTs(after observation: Observation) throws -> Double? {
+        try db.writer.read { conn in
+            try Double.fetchOne(conn, sql: "SELECT ts FROM observations WHERE ts > ? OR (ts = ? AND id > ?) ORDER BY ts, id LIMIT 1",
+                                arguments: [observation.ts, observation.ts, observation.id ?? 0])
+        }
+    }
+
+    /// 다시 판정하기: 배치들의 행을 미처리로 되돌리고 배치 기록은 replaced 로 둔다. 화면 카드 연결은 남긴다
+    public func reopenBatches(_ ids: [Int64]) throws -> (rows: Int, lastTs: Double?) {
+        guard !ids.isEmpty else { return (0, nil) }
+        return try db.writer.write { conn in
+            let list = ids.map(String.init).joined(separator: ",")
+            let lastTs = try Double.fetchOne(conn, sql: "SELECT MAX(ts) FROM observations WHERE batch_id IN (\(list))")
+            try conn.execute(sql: "UPDATE observations SET batch_id = NULL, task_id = NULL, resource_relevant = 1, off_task = 0, task_reason = NULL WHERE batch_id IN (\(list))")
+            let rows = conn.changesCount
+            try conn.execute(sql: "UPDATE chat_messages SET batch_id = NULL, task_id = NULL WHERE batch_id IN (\(list))")
+            try conn.execute(sql: "UPDATE batches SET status = 'replaced' WHERE id IN (\(list))")
+            return (rows, lastTs)
+        }
+    }
+
     public func texts(ids: [Int64]) throws -> [Int64: String] {
         guard !ids.isEmpty else { return [:] }
         let list = Set(ids).map(String.init).joined(separator: ",")

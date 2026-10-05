@@ -81,10 +81,19 @@ final class AppState: ObservableObject {
             self.coordinator = coordinator
             self.chat = ChatState(db: database, makeClient: { [unowned self] in self.makeChatClient() },
                                   makeProjectClient: { [unowned self] in self.makeClient() })
-            let batcher = OntologyBatcher(db: database, llm: makeClient())
+            var batchConfig = BatchConfig()
+            // 숨은 설정: defaults write com.capstone.workgraph batchPipeline single (없으면 기본값인 3단계)
+            batchConfig.pipeline = BatchPipeline(rawValue: UserDefaults.standard.string(forKey: "batchPipeline") ?? "") ?? batchConfig.pipeline
+            // 숨은 설정: defaults write com.capstone.workgraph themes -bool true (없으면 분야 붙이기는 꺼짐)
+            batchConfig.themes = UserDefaults.standard.bool(forKey: "themes")
+            let batcher = OntologyBatcher(db: database, llm: makeClient(), config: batchConfig)
             self.batcher = batcher
             let cardsOn = settings.screenCards && settings.captureScreenshots
             Task { await batcher.setScreenCards(cardsOn) }
+            // 앱을 시작할 때 분야가 없거나 종류가 옛 판인 업무를 정리한다 (처음 한 번은 기존 업무 전부). 붙였으면 그래프를 새로 그린다
+            Task { [weak self] in
+                if await batcher.assignThemes() != nil { self?.graphVersion += 1 }
+            }
             self.suggester = FolderSuggester(db: database, llm: makeQuickClient())
             notifier.onAction = { [weak self] action, id in Task { @MainActor in self?.handleNotificationAction(action, id: id) } }
             notifier.onDenied = { [weak self] denied in Task { @MainActor in self?.notificationsDenied = denied } }

@@ -1,5 +1,5 @@
 {
-  "originHash" : "33c555094b367b18714f8eea9d4be8524861db6f87a3eb970a63d60cfb887e58",
+  "originHash" : "d74a1d1d3c9e3ce4d0279ffbe0f0f83a895bad78cb3251ab212d020e4e82a58a",
   "pins" : [
     {
       "identity" : "grdb.swift",
@@ -8,6 +8,14 @@
       "state" : {
         "revision" : "b83108d10f42680d78f23fe4d4d80fc88dab3212",
         "version" : "7.11.1"
+      }
+    },
+    {
+      "identity" : "langgraph-swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/bsorrentino/LangGraph-Swift.git",
+      "state" : {
+        "revision" : "d91c62aaa25e818f2667482c6edbe635a375ec45"
       }
     }
   ],

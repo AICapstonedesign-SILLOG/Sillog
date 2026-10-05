@@ -13,6 +13,8 @@ public enum NodeLabel {
     public static let file = "File"
     public static let folder = "Folder"
     public static let laterItem = "LaterItem"
+    /// 업무를 묶는 넓은 분야 (업무 위의 상위 분류)
+    public static let theme = "Theme"
 
     /// 클래스 층(T-Box) 라벨. 그래프 뷰에서 기본으로 숨긴다.
     public static let tbox: Set<String> = [taskType, resourceType]

@@ -11,11 +11,13 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
+        // LangGraph for Swift: 문서 플러그인을 브랜치로 물고 있어 버전이 아니라 커밋으로 고정 (마지막 커밋 2025-08-01)
+        .package(url: "https://github.com/bsorrentino/LangGraph-Swift.git", revision: "d91c62aaa25e818f2667482c6edbe635a375ec45"),
     ],
     targets: [
         .target(
             name: "WorkGraphCore",
-            dependencies: [.product(name: "GRDB", package: "GRDB.swift")],
+            dependencies: [.product(name: "GRDB", package: "GRDB.swift"), .product(name: "LangGraph", package: "LangGraph-Swift")],
             resources: [.copy("Chat/Skills")]
         ),
         .target(

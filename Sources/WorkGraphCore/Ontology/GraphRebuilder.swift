@@ -24,8 +24,10 @@ public struct GraphRebuilder {
         var stats = Stats()
         let observations = try store.assignedObservations()
         let chats = try store.assignedChatMessages()
-        let batches = try store.recentBatches(limit: 100_000).filter { $0.status == "ok" }.sorted { ($0.startedAt, $0.id ?? 0) < ($1.startedAt, $1.id ?? 0) }
         let byBatch = Dictionary(grouping: observations, by: { $0.batchId ?? -1 })
+        // 행의 시각 순서로 (다시 판정한 배치는 나중에 실행됐어도 그 행들의 시각에 놓인다)
+        func firstTs(_ batch: BatchRecord) -> Double { batch.id.flatMap { byBatch[$0]?.first?.ts } ?? batch.startedAt }
+        let batches = try store.recentBatches(limit: 100_000).filter { $0.status == "ok" }.sorted { (firstTs($0), $0.id ?? 0) < (firstTs($1), $1.id ?? 0) }
         let chatsByBatch = Dictionary(grouping: chats, by: { $0.batchId ?? -1 })
 
         try db.writer.write { conn in

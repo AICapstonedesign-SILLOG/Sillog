@@ -45,7 +45,8 @@ wgctl [--db PATH] <command>
   resume-plan TASK_ID | --session ID    그 업무·세션을 "다시 열기" 하면 무엇을 열지 (열지는 않음)
   clean-topics [--yes]                  주제 노드 중 앱·플랫폼·프로젝트 이름·채움말을 찾아 보여 주고, --yes 면 지운다 (앱을 끄고 실행)
   rebind-projects                       업무 ↔ 프로젝트를 1:1 로 다시 맞춘다 (기존 ON 엣지의 시간을 근거로. 앱을 끄고 실행)
-  merge-tasks [--dry] [--days N]        제목만 다른 같은 목표의 업무를 LLM 에 물어 합친다 (--dry: 묻기만. 앱을 끄고 실행)
+  merge-tasks [--dry] [--days N]        제목만 다른 같은 목표의 업무를 합치고, 목표가 아닌 업무는 업무 외로 돌린다 (LLM 판단. --dry: 묻기만. 앱을 끄고 실행)
+  retire-task TASK_ID [TASK_ID…]        업무를 업무 외로 돌린다: 그 행은 업무 외(이유는 남김), 세션은 지운다 (앱을 끄고 실행)
   eval-assign SCENARIO.json [--out result.json] [--runs N]
                                         정답이 붙은 가짜 하루를 LLM 에 보내 행 판정(업무/이탈/없음, 자료 여부)을 채점한다 (기록 안 함)
   backfill-screen-hash                  예전 스크린샷 파일에서 차이 해시를 계산해 원시 행에 채운다 (화면 기억 카드의 재료)
@@ -53,6 +54,20 @@ wgctl [--db PATH] <command>
   recard [--ids 1,2] [--kind message]   카드를 저장된 스크린샷으로 지금 규칙에 맞춰 다시 만든다 (12장씩 한 호출)
   topic-audit [--last N]                지난 배치들의 LLM 응답에서 주제 태그를 모아 필터가 거를 것을 센다 (프롬프트 대 필터 평가)
   replay-batch ID [ID…]                 저장된 배치의 입력을 지금 프롬프트로 다시 보내 응답을 비교한다 (기록하지 않음. 배치당 LLM 호출 1번)
+  rejudge ID [ID…]                      배치들의 행을 지금 규칙으로 다시 판정해 기록을 바꾸고 세션을 다시 계산한다 (카드는 연결된 것을 쓴다. 앱을 끄고 실행)
+  gold-candidates --from YYYY-MM-DD [--to YYYY-MM-DD] [--limit N] [--model M] [--reasoning high] [--out FILE]
+                                        정답 세트 재료: 그 기간 배치의 행을 앱과 같은 방식으로 다시 만들어 판정만 받고(기록 안 함),
+                                        지금 판정과 행마다 비교해 쓴다 (기본: 데이터 폴더/eval/gold-candidates.json)
+  gold-score [--gold FILE] [--predictions FILE]
+                                        사람이 확정한 정답 세트로 지금 판정·다시 판정·예측("배치:행" → 판정)의 정확도를 잰다
+  gold-run --from YYYY-MM-DD [--pipeline single|staged] [--runs N] [--model M] [--reasoning R] [--out FILE]
+                                        정답 세트 배치를 고른 판정 방식으로 다시 판정만 받아(기록 안 함) 채점하고, 두 번 이상이면 흔들림도 낸다
+  pipeline-graph                        3단계 판정 흐름도를 Mermaid 로 출력
+  themes                                분야별 업무 목록
+  assign-themes [--retype] [--dry-run]  분야가 없거나 종류가 옛 판인 업무에 분야·종류를 붙인다 (앱을 끄고 실행.
+                                        --retype: 모든 업무의 종류를 다시, --dry-run: 판정만 보고 기록 안 함)
+  theme-eval [--gold FILE] [--runs N]   정답 세트 업무를 빈 분야 목록에서 판정만 받아(기록 안 함) 분야·종류 정확도, 새 분야 수, 흔들림을 낸다
+  set-theme TASK_ID (분야이름 | --clear)   업무의 분야를 바꾸거나 뺀다 (앱을 끄고 실행)
 
 기본 DB: \(WGDatabase.defaultPath())
 기본 LLM: ChatGPT 로그인(codex), 모델 \(CodexResponsesClient.defaultModel). --base-url 을 주면 OpenAI 호환 서버(openai)로 간주한다
@@ -106,6 +121,226 @@ func makeClient() -> (client: any LLMClient, pingable: OpenAICompatClient?) {
     }
     return (CodexResponsesClient(auth: codexAuth, model: model, reasoningEffort: option("--reasoning") ?? "medium"), nil)
 }
+
+/// 정답 세트 재료: 배치 하나를 앱이 보낸 것과 같은 방식으로 다시 만든 것
+struct GoldJob {
+    let batchId: Int64
+    let input: JudgeInput
+    let current: [Int: (label: String, reason: String)]
+    let evidence: [Int: String]
+    var rows: [ActivityRow] { input.rows }
+}
+
+/// 판정 이름표: task:키 / new:제목 / off / none
+struct GoldLabels {
+    let titleByKey: [String: String]
+    let keyByTitle: [String: String]
+
+    init(tasks: [GraphNode]) {
+        titleByKey = Dictionary(tasks.map { ($0.key, $0.title) }, uniquingKeysWith: { first, _ in first })
+        keyByTitle = Dictionary(tasks.map { (AssignmentApplier.normalizeTitle($0.title).lowercased(), $0.key) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    func name(_ label: String) -> String {
+        if label.hasPrefix("task:") { return titleByKey[String(label.dropFirst(5))] ?? label }
+        if label.hasPrefix("new:") { return "새 업무: " + label.dropFirst(4) }
+        return label == "off" ? "업무 외" : label == "none" ? "없음" : label
+    }
+
+    func label(_ patch: AssignmentPatch, decided: [Int: (task: String?, resource: Bool?, reason: String?)], row: Int) -> (label: String, reason: String) {
+        guard let decision = decided[row] else { return ("missing", "") }
+        let reason = decision.reason ?? ""
+        guard let ref = decision.task else { return ("none", reason) }
+        if ref == AssignmentPatch.offTask { return ("off", reason) }
+        guard let definition = patch.tasks.first(where: { $0.ref == ref }) else { return ("missing", reason) }
+        let title = AssignmentApplier.normalizeTitle(definition.title ?? "")
+        if definition.match == "existing", let id = definition.id, titleByKey[id] != nil { return ("task:\(id)", reason) }
+        if let key = keyByTitle[title.lowercased()] { return ("task:\(key)", reason) }
+        if AssignmentApplier.isCategory(title) { return ("off", reason) }
+        return ("new:\(title)", reason)
+    }
+}
+
+/// 정답 세트용: 그 기간의 배치를 앱이 보낸 것과 같은 방식으로 다시 만든다 (행·카드·후보 업무·지금 판정)
+/// tasksBefore: 이 시각 뒤에 생긴 업무는 후보에서 뺀다 (정답을 매길 때 없던 후보)
+func goldJobs(from: Double, until: Double, limit: Int, tasksBefore: Double = .infinity) throws -> [GoldJob] {
+    let config = BatchConfig(), home = NSHomeDirectory()
+    let exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    let observations = try store.assignedObservations()
+    let chats = try store.assignedChatMessages()
+    let byBatch = Dictionary(grouping: observations, by: { $0.batchId ?? -1 })
+    let chatsByBatch = Dictionary(grouping: chats, by: { $0.batchId ?? -1 })
+    let batches = try store.recentBatches(limit: 100_000).filter { batch in
+        guard batch.status == "ok", let id = batch.id, let first = byBatch[id]?.first else { return false }
+        return first.ts >= from && first.ts < until
+    }.sorted { ($0.id ?? 0) < ($1.id ?? 0) }.prefix(limit)
+    let taskNodes = try db.writer.read { try GraphTx($0).nodes(label: NodeLabel.task) }
+    let keyById = Dictionary(taskNodes.map { ($0.id, $0.key) }, uniquingKeysWith: { first, _ in first })
+    let newer = Set(taskNodes.filter { $0.createdAt > tasksBefore }.map(\.key))
+    var jobs: [GoldJob] = []
+    for batch in batches {
+        guard let batchId = batch.id, let window = byBatch[batchId], let first = window.first, let last = window.last else { continue }
+        let windowEnd = try store.nextObservationTs(after: last) ?? (last.ts + config.maxGap)
+        let idle = try store.idleSpans(from: first.ts, to: windowEnd)
+        let texts = try store.texts(ids: window.compactMap(\.textId))
+        let rows = EventCompressor.merge(
+            EventCompressor.compress(window, idle: idle, texts: texts, windowEnd: windowEnd, home: home, fileExists: exists,
+                                     maxRows: config.maxRows, maxGap: config.maxGap, snippetChars: config.snippetChars, snippetTopN: config.snippetTopN),
+            chats: chatsByBatch[batchId] ?? [], home: home, fileExists: exists, snippetChars: config.snippetChars)
+        let cardOf = Dictionary(window.compactMap { obs in obs.id.flatMap { id in obs.cardId.map { (id, $0) } } }, uniquingKeysWith: { first, _ in first })
+        let cards: [Int: [ScreenCard]] = try db.writer.read { conn in
+            var result: [Int: [ScreenCard]] = [:]
+            for row in rows where !row.isChat {
+                let ids = Array(Set(row.observationIds.compactMap { cardOf[$0] }))
+                let found = try ScreenCard.fetchAll(conn, keys: ids).sorted { $0.tsStart < $1.tsStart }
+                if !found.isEmpty { result[row.row] = found }
+            }
+            return result
+        }
+        let openTasks = try db.writer.read { try GraphTx($0).openTasks(limit: 40, since: first.ts - 7 * 86_400) }.filter { !newer.contains($0.id) }
+        let decided = Dictionary(window.compactMap { obs in obs.id.map { ($0, obs) } }, uniquingKeysWith: { first, _ in first })
+        let chatTask = Dictionary((chatsByBatch[batchId] ?? []).compactMap { chat in chat.id.map { ($0, chat.taskId) } }, uniquingKeysWith: { first, _ in first })
+        var current: [Int: (label: String, reason: String)] = [:], evidence: [Int: String] = [:]
+        for row in rows {
+            var votes: [String: Int] = [:], reason = ""
+            if row.isChat {
+                let task = row.chatMessageIds.compactMap { chatTask[$0] ?? nil }.first.flatMap { keyById[$0] }
+                votes[task.map { "task:\($0)" } ?? "none", default: 0] += 1
+            } else {
+                for id in row.observationIds {
+                    guard let obs = decided[id] else { continue }
+                    votes[obs.taskId.flatMap { keyById[$0] }.map { "task:\($0)" } ?? (obs.offTask ? "off" : "none"), default: 0] += 1
+                    if reason.isEmpty, let text = obs.taskReason { reason = text }
+                }
+            }
+            current[row.row] = (votes.max { ($0.value, $0.key) < ($1.value, $1.key) }?.key ?? "none", reason)
+            var lines: [String] = []
+            if let rowCards = cards[row.row] {
+                for card in rowCards { lines.append("screen: \(card.activity)"); lines += OntologyPrompt.cardLines(card).map { "· \($0)" } }
+            } else if let snippet = row.snippet, !snippet.isEmpty {
+                lines.append("text: \(OntologyPrompt.clip(snippet, 300))")
+            }
+            evidence[row.row] = lines.joined(separator: "\n")
+        }
+        jobs.append(GoldJob(batchId: batchId, input: JudgeInput(rows: rows, openTasks: openTasks, cards: cards, now: batch.startedAt),
+                            current: current, evidence: evidence))
+    }
+    return jobs
+}
+
+/// 배치 하나를 판정만 받는다. 실패면 이유와, 기다렸다 다시 하면 되는 실패(요청 한도·서버 과부하·연결)인지를 함께 돌려준다
+func judgeOnce(_ input: JudgeInput, pipeline: BatchPipeline, client: any LLMClient) async -> (patch: AssignmentPatch?, calls: Int, failure: String?, transient: Bool, stages: [StageCall]) {
+    func transient(_ error: Error) -> Bool {
+        switch error as? LLMError {
+        case .http(let status, _): return status == 429 || status >= 500
+        case .backend, .transport: return true
+        default: return false
+        }
+    }
+    switch pipeline {
+    case .single:
+        let prompt = OntologyPrompt.build(rows: input.rows, openTasks: input.openTasks, now: input.now, cards: input.cards)
+        do {
+            let result = try await client.callFunction(system: prompt.system, user: prompt.user, tool: AssignmentSchema.tool)
+            let patch = AssignmentPatch.decodeLenient(from: result.arguments)
+            return (patch, 1, patch == nil ? "응답을 해석할 수 없음" : nil, false, [])
+        } catch {
+            return (nil, 1, "\(error)", transient(error), [])
+        }
+    case .staged:
+        do {
+            let (patch, stageCalls) = try await StagedPipeline.run(input, llm: client)
+            return (patch, stageCalls.count, nil, false, stageCalls)
+        } catch let error as PipelineError {
+            if case .stageFailed(_, let underlying, _) = error { return (nil, error.calls.count, error.description, transient(underlying), error.calls) }
+            return (nil, error.calls.count, error.description, false, error.calls)
+        } catch {
+            return (nil, 0, "\(error)", transient(error), [])
+        }
+    }
+}
+
+/// 배치들을 고른 방식으로 판정만 받는다 (3개씩 동시에, 기록 안 함). 요청 한도·과부하는 30·60·90초 기다렸다 그 배치를 처음부터 다시 하고,
+/// 앱이 반영 전에 거부할 판정(빠진 행, 모르는 업무)은 실패한 배치로 센다
+func judgeGold(_ jobs: [GoldJob], pipeline: BatchPipeline, client: any LLMClient) async -> (patches: [Int64: AssignmentPatch], failed: [Int64], calls: Int) {
+    var patches: [Int64: AssignmentPatch] = [:], failed: [Int64] = [], calls = 0
+    await withTaskGroup(of: (Int64, AssignmentPatch?, Int, String?).self) { group in
+        var next = 0
+        func add() {
+            guard next < jobs.count else { return }
+            let id = jobs[next].batchId, input = jobs[next].input
+            next += 1
+            group.addTask {
+                var spent = 0
+                for attempt in 1...4 {
+                    let result = await judgeOnce(input, pipeline: pipeline, client: client)
+                    spent += result.calls
+                    guard result.transient, attempt < 4 else {
+                        if let patch = result.patch, let reason = AssignmentCheck.rejection(patch, rows: input.rows, openTasks: input.openTasks, now: input.now) {
+                            // 3단계면 원인을 볼 수 있게 ②의 답 앞부분을 붙인다
+                            let answer = result.stages.last { $0.stage == "assign" }.map { " — ② 답: \($0.arguments.prefix(500))" } ?? ""
+                            return (id, nil, spent, "앱이 거부: \(reason)\(answer)")
+                        }
+                        return (id, result.patch, spent, result.failure)
+                    }
+                    print("  배치 \(id): \(result.failure ?? "") — \(30 * attempt)초 뒤 다시")
+                    try? await Task.sleep(nanoseconds: UInt64(30 * attempt) * 1_000_000_000)
+                }
+                return (id, nil, spent, "다시 해도 실패")
+            }
+        }
+        for _ in 0..<3 { add() }
+        while let (id, patch, count, failure) = await group.next() {
+            calls += count
+            if let patch { patches[id] = patch } else { failed.append(id) }
+            print("  \(patches.count + failed.count)/\(jobs.count)\(failure.map { " — 배치 \(id) 실패: \($0)" } ?? "")")
+            add()
+        }
+    }
+    return (patches, failed, calls)
+}
+
+/// 업무 기준 이름표: 없음·업무 외는 "업무 아님" 하나로, 새 업무는 제목과 상관없이 "new"
+func goldTaskLevel(_ label: String?) -> String? {
+    guard let label else { return nil }
+    if label == "none" || label == "off" || label == "not-task" || label == "missing" { return "not-task" }
+    return label.hasPrefix("new:") ? "new" : label
+}
+
+/// 정답 세트로 채점해 한 줄 출력 (업무 기준 + 없음·업무 외까지 구분한 엄격 점수)
+func printGoldScore(_ title: String, graded: [[String: Any]], predict: ([String: Any]) -> String?) {
+    func strict(_ label: String?) -> String? { label.map { $0.hasPrefix("new:") ? "new" : $0 } }
+    func kind(_ label: String) -> String { label.hasPrefix("task:") ? "업무" : label.hasPrefix("new:") ? "새 업무" : "업무 아님" }
+    var correct = 0, strictCorrect = 0, strictTotal = 0, perKind: [String: (ok: Int, total: Int)] = [:]
+    for row in graded {
+        let gold = row["gold"] as! String, guess = predict(row)
+        let ok = goldTaskLevel(guess) == goldTaskLevel(gold)
+        if ok { correct += 1 }
+        perKind[kind(gold), default: (0, 0)].total += 1
+        if ok { perKind[kind(gold), default: (0, 0)].ok += 1 }
+        if gold != "not-task" { strictTotal += 1; if strict(guess) == strict(gold) { strictCorrect += 1 } }
+    }
+    let detail = perKind.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value.ok)/\($0.value.total)" }.joined(separator: ", ")
+    print(String(format: "  %@: 업무 기준 %d/%d (%.1f%%) — %@ | 없음·업무 외까지 구분 %d/%d (%.1f%%)", title, correct, graded.count,
+                 100.0 * Double(correct) / Double(max(1, graded.count)), detail, strictCorrect, strictTotal,
+                 100.0 * Double(strictCorrect) / Double(max(1, strictTotal))))
+}
+
+/// 정답 세트 (정답이 있는 행만)
+func loadGoldRows(_ path: String) -> [[String: Any]]? {
+    guard let data = FileManager.default.contents(atPath: path),
+          let file = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let rows = file["rows"] as? [[String: Any]] else { return nil }
+    return rows.filter { $0["gold"] is String }
+}
+
+/// 분야 이름 비교용 키 (기본 분야 표기로 맞춘 뒤 공백·대소문자 무시)
+func themeKey(_ name: String?) -> String { ThemeCatalog.matchKey(ThemeCatalog.canonical(name ?? "")) }
+
+/// 명령 안에서 트랜잭션을 되돌리며 멈출 때
+struct CommandError: Error, CustomStringConvertible { let description: String }
+
+/// 정답 세트 파일이 놓이는 곳 (개인 기록이라 저장소 밖, DB 옆)
+var evalDirectory: String { (dbPath as NSString).deletingLastPathComponent + "/eval" }
 
 func describe(_ status: CodexAuthStatus) -> String {
     switch status {
@@ -188,8 +423,12 @@ do {
         guard instance.acquire() else { fail("이 DB 를 쓰는 Sillog 앱이 실행 중입니다. 앱이 직접 정리하므로 CLI 배치는 앱을 끈 뒤에 실행하세요.") }
         defer { instance.release() }
         let force = flag("--force"), all = flag("--all")
-        let client: any LLMClient = flag("--demo-llm") ? DemoLLM() : makeClient().client
-        let batcher = OntologyBatcher(db: db, llm: client)
+        let demo = flag("--demo-llm")
+        let client: any LLMClient = demo ? DemoLLM() : makeClient().client
+        var batchConfig = BatchConfig()
+        // 데모 LLM 은 한 번 호출 형식으로만 답하고 분야 도구는 모른다
+        if demo { batchConfig.pipeline = .single; batchConfig.themes = false }
+        let batcher = OntologyBatcher(db: db, llm: client, config: batchConfig)
         var round = 0
         repeat {
             round += 1
@@ -412,12 +651,26 @@ do {
             Dictionary(try GraphTx(conn).nodes(label: NodeLabel.task).map { ($0.key, $0.title) }, uniquingKeysWith: { first, _ in first })
         }
         let outcome = try await TaskMerger.run(db: db, llm: makeClient().client, since: now - days * 86_400, now: now, dry: dry)
-        if outcome.groups.isEmpty { print("합칠 업무가 없습니다."); break }
+        if outcome.groups.isEmpty && outcome.notGoals.isEmpty { print("합치거나 고칠 업무가 없습니다."); break }
         for group in outcome.groups {
-            print("  남김: \(titles[group.keep] ?? group.keep)\(group.title.map { " → \($0)" } ?? "")")
+            print("  남김: \(titles[group.keep] ?? group.keep)\(group.title.map { " → \($0)" } ?? "")\(group.goal.map { " (목표: \($0))" } ?? "")")
             for key in group.merge { print("    ← \(titles[key] ?? key)") }
         }
-        print(dry ? "(--dry: 반영하지 않음)" : "업무 \(outcome.merged)개를 합쳤습니다.")
+        for key in outcome.notGoals { print("  목표 아님 → 업무 외: \(titles[key] ?? key)") }
+        print(dry ? "(--dry: 반영하지 않음)" : "업무 \(outcome.merged)개를 합치고 \(outcome.retired)개를 업무 외로 돌렸습니다.")
+
+    case "retire-task":
+        let keys = args
+        guard !keys.isEmpty else { fail("사용법: retire-task TASK_ID [TASK_ID…]") }
+        let instance = InstanceLock(databasePath: dbPath)
+        guard instance.acquire() else { fail("이 DB 를 쓰는 Sillog 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
+        defer { instance.release() }
+        let now = Date().timeIntervalSince1970
+        for key in keys {
+            let title = try db.writer.read { try GraphTx($0).node(label: NodeLabel.task, key: key)?.title }
+            let done = try db.writer.write { try TaskMerger.retire(key, conn: $0, now: now) }
+            print(done ? "업무 외로 돌림: \(title ?? key)" : "업무 없음: \(key)")
+        }
 
     case "rebind-projects":
         let instance = InstanceLock(databasePath: dbPath)
@@ -616,6 +869,246 @@ do {
         for (why, count) in rejected.sorted(by: { $0.value > $1.value }) {
             print("  \(why): \(count)  예) \(examples[why, default: []].sorted().prefix(12).joined(separator: ", "))")
         }
+
+    case "rejudge":
+        let ids = args.compactMap(Int64.init)
+        guard !ids.isEmpty else { fail("사용법: rejudge BATCH_ID [BATCH_ID…]") }
+        let instance = InstanceLock(databasePath: dbPath)
+        guard instance.acquire() else { fail("이 DB 를 쓰는 Sillog 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
+        defer { instance.release() }
+        let (reopened, lastTs) = try store.reopenBatches(ids)
+        guard let lastTs else { fail("그 배치들에 행이 없음") }
+        print("배치 \(ids.count)개의 행 \(reopened)개를 지금 규칙으로 다시 판정합니다")
+        let batcher = OntologyBatcher(db: db, llm: makeClient().client)
+        var round = 0
+        while round < 20, let oldest = try store.oldestUnprocessedTs(), oldest <= lastTs {
+            round += 1
+            let outcome = await batcher.runIfDue(force: true)
+            print("[\(round)] \(outcome)")
+            guard case .ok = outcome else { break }
+        }
+        let rebuilt = try GraphRebuilder(db: db, store: store).rebuildFromAssignments(now: Date().timeIntervalSince1970)
+        print("세션 \(rebuilt.sessions)개를 행 판단에서 다시 계산했습니다")
+        try printStats()
+
+    case "gold-candidates":
+        let day = DateFormatter(); day.dateFormat = "yyyy-MM-dd"; day.timeZone = .current
+        guard let fromText = option("--from"), let from = day.date(from: fromText)?.timeIntervalSince1970 else {
+            fail("사용법: gold-candidates --from YYYY-MM-DD [--to YYYY-MM-DD] [--limit N] [--model M] [--reasoning high] [--out FILE]")
+        }
+        let until = option("--to").flatMap { day.date(from: $0)?.timeIntervalSince1970 }.map { $0 + 86_400 } ?? .infinity
+        let limit = option("--limit").flatMap(Int.init) ?? Int.max
+        let out = option("--out") ?? evalDirectory + "/gold-candidates.json"
+        let model = option("--model") ?? CodexResponsesClient.defaultModel
+        let client = makeClient().client
+        let jobs = try goldJobs(from: from, until: until, limit: limit)
+        let labels = GoldLabels(tasks: try db.writer.read { try GraphTx($0).nodes(label: NodeLabel.task) })
+        print("배치 \(jobs.count)개, 행 \(jobs.reduce(0) { $0 + $1.rows.count })개를 다시 판정합니다 (모델 \(model), 기록하지 않음)")
+        let (patches, failedBatches, _) = await judgeGold(jobs, pipeline: .single, client: client)
+        var items: [[String: Any]] = [], disagree = 0
+        for job in jobs {
+            guard let patch = patches[job.batchId] else { continue }
+            let decided = patch.byRow()
+            for row in job.rows {
+                guard let current = job.current[row.row] else { continue }
+                let judge = labels.label(patch, decided: decided, row: row.row)
+                let agree = judge.label == current.label
+                if !agree { disagree += 1 }
+                items.append([
+                    "batch": job.batchId, "row": row.row, "start": row.start, "dwell": row.dwell, "app": row.app,
+                    "title": row.title ?? "", "uri": row.uri ?? "", "evidence": job.evidence[row.row] ?? "",
+                    "current": ["label": current.label, "name": labels.name(current.label), "reason": current.reason],
+                    "judge": ["label": judge.label, "name": labels.name(judge.label), "reason": judge.reason],
+                    "agree": agree, "gold": agree ? current.label as Any : NSNull(),
+                ])
+            }
+        }
+        try FileManager.default.createDirectory(atPath: (out as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        let payload: [String: Any] = ["from": fromText, "model": model, "created": Date().timeIntervalSince1970, "failed_batches": failedBatches, "rows": items]
+        try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]).write(to: URL(fileURLWithPath: out))
+        print("행 \(items.count)개 중 갈린 행 \(disagree)개\(failedBatches.isEmpty ? "" : ", 실패한 배치 \(failedBatches)") → \(out)")
+
+    case "gold-score":
+        let path = option("--gold") ?? evalDirectory + "/gold.json"
+        guard let graded = loadGoldRows(path) else { fail("정답 세트를 읽을 수 없음: \(path)") }
+        var predictions: [String: String] = [:]
+        if let predictionPath = option("--predictions") {
+            guard let raw = FileManager.default.contents(atPath: predictionPath), let map = try? JSONSerialization.jsonObject(with: raw) as? [String: String] else {
+                fail("예측 파일을 읽을 수 없음: \(predictionPath)")
+            }
+            predictions = map
+        }
+        print("정답 세트 \(graded.count)행 (사람이 고른 행 \(graded.filter { ($0["source"] as? String) == "human" }.count)개) — \(path)")
+        printGoldScore("지금 판정", graded: graded) { ($0["current"] as? [String: Any])?["label"] as? String }
+        printGoldScore("다시 판정", graded: graded) { ($0["judge"] as? [String: Any])?["label"] as? String }
+        if !predictions.isEmpty { printGoldScore("예측", graded: graded) { predictions["\($0["batch"] ?? ""):\($0["row"] ?? "")"] } }
+
+    case "gold-run":
+        let day = DateFormatter(); day.dateFormat = "yyyy-MM-dd"; day.timeZone = .current
+        guard let fromText = option("--from"), let from = day.date(from: fromText)?.timeIntervalSince1970,
+              let pipeline = BatchPipeline(rawValue: option("--pipeline") ?? "staged") else {
+            fail("사용법: gold-run --from YYYY-MM-DD [--to YYYY-MM-DD] [--pipeline single|staged] [--runs N] [--limit N] [--model M] [--reasoning R] [--out FILE]")
+        }
+        let until = option("--to").flatMap { day.date(from: $0)?.timeIntervalSince1970 }.map { $0 + 86_400 } ?? .infinity
+        let limit = option("--limit").flatMap(Int.init) ?? Int.max
+        let runs = max(1, option("--runs").flatMap(Int.init) ?? 1)
+        let out = option("--out") ?? evalDirectory + "/gold-run-\(pipeline.rawValue).json"
+        let client = makeClient().client
+        let goldPath = evalDirectory + "/gold.json"
+        let gold = loadGoldRows(goldPath)
+        // 정답 세트가 있으면 그 배치만, 정답 세트를 만들 때 있던 업무만 후보로 판정한다
+        let goldBatches = gold.map { Set($0.compactMap { ($0["batch"] as? NSNumber)?.int64Value }) }
+        let goldCreated = FileManager.default.contents(atPath: goldPath)
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["created"] as? Double ?? .infinity
+        let jobs = try goldJobs(from: from, until: until, limit: limit, tasksBefore: goldCreated).filter { goldBatches?.contains($0.batchId) ?? true }
+        let labels = GoldLabels(tasks: try db.writer.read { try GraphTx($0).nodes(label: NodeLabel.task) })
+        print("배치 \(jobs.count)개, 행 \(jobs.reduce(0) { $0 + $1.rows.count })개 — \(pipeline.rawValue) × \(runs)회 (기록하지 않음)")
+        var predictionRuns: [[String: String]] = []
+        for run in 1...runs {
+            let started = Date()
+            let (patches, failed, calls) = await judgeGold(jobs, pipeline: pipeline, client: client)
+            var predictions: [String: String] = [:]
+            for job in jobs {
+                guard let patch = patches[job.batchId] else { continue }
+                let decided = patch.byRow()
+                for row in job.rows { predictions["\(job.batchId):\(row.row)"] = labels.label(patch, decided: decided, row: row.row).label }
+            }
+            predictionRuns.append(predictions)
+            print(String(format: "  %d회: 호출 %d번 (배치당 %.1f), 실패 배치 %d개, %d초", run, calls, Double(calls) / Double(max(1, jobs.count)),
+                         failed.count, Int(Date().timeIntervalSince(started))))
+        }
+        try FileManager.default.createDirectory(atPath: (out as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        let payload: [String: Any] = ["from": fromText, "pipeline": pipeline.rawValue, "created": Date().timeIntervalSince1970, "runs": predictionRuns]
+        try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys]).write(to: URL(fileURLWithPath: out))
+        print("→ \(out)")
+        if let graded = gold {
+            for (index, predictions) in predictionRuns.enumerated() {
+                printGoldScore("\(pipeline.rawValue) \(index + 1)회", graded: graded) { predictions["\($0["batch"] ?? ""):\($0["row"] ?? "")"] }
+            }
+        }
+        if predictionRuns.count >= 2 {
+            let first = predictionRuns[0], second = predictionRuns[1]
+            let shared = Set(first.keys).intersection(second.keys)
+            let flipped = shared.filter { goldTaskLevel(first[$0]) != goldTaskLevel(second[$0]) }.count
+            print(String(format: "  흔들림: 두 실행에서 업무 기준 판정이 달라진 행 %d/%d (%.1f%%)", flipped, shared.count, 100.0 * Double(flipped) / Double(max(1, shared.count))))
+        }
+
+    case "themes":
+        let rows = try db.writer.read { conn -> [(theme: String, tasks: [String])] in
+            let tx = GraphTx(conn)
+            var byTheme: [String: [String]] = [:], none: [String] = []
+            for task in try tx.nodes(label: NodeLabel.task) {
+                if let theme = try ThemeGraph.theme(ofTask: task.id, tx) { byTheme[theme.title, default: []].append(task.title) } else { none.append(task.title) }
+            }
+            var rows = byTheme.sorted { $0.key < $1.key }.map { (theme: $0.key, tasks: $0.value) }
+            if !none.isEmpty { rows.append((theme: "(분야 없음)", tasks: none)) }
+            return rows
+        }
+        if rows.isEmpty { print("업무가 없습니다") }
+        for row in rows {
+            print("\(row.theme) (\(row.tasks.count))")
+            for title in row.tasks { print("  - \(title)") }
+        }
+
+    case "assign-themes":
+        let retype = flag("--retype"), dryRun = flag("--dry-run")
+        let client = makeClient().client
+        if dryRun {
+            let loaded = try db.writer.read { try ThemeStep.load(GraphTx($0), retypeAll: retype) }
+            guard !loaded.targets.isEmpty else { print("분야·종류를 붙일 업무가 없습니다"); break }
+            print("업무 \(loaded.targets.count)개를 판정만 합니다 (기록하지 않음)")
+            let answers = try await ThemeStep.judge(targets: loaded.targets, themes: loaded.themes, llm: client)
+            for target in loaded.targets {
+                let answer = answers[target.key]
+                let theme = target.needsTheme ? (answer?.theme ?? "(답 없음)") : "(그대로)"
+                let type = target.needsType ? (answer?.taskType ?? "(답 없음)") : "(그대로)"
+                print("  \(target.title) → 분야 \(theme), 종류 \(type)")
+            }
+            break
+        }
+        let instance = InstanceLock(databasePath: dbPath)
+        guard instance.acquire() else { fail("이 DB 를 쓰는 Sillog 앱이 실행 중입니다. 앱이 직접 분야를 붙이므로 앱을 종료한 뒤 다시 실행하세요.") }
+        defer { instance.release() }
+        guard let outcome = try await ThemeStep.run(db: db, llm: client, now: Date().timeIntervalSince1970, retypeAll: retype) else {
+            print("분야·종류를 붙일 업무가 없습니다"); break
+        }
+        var line = "분야 \(outcome.themed)개, 종류 \(outcome.retyped)개"
+        if !outcome.created.isEmpty { line += ", 새 분야 \(outcome.created.joined(separator: ", "))" }
+        if outcome.skipped > 0 { line += ", 건너뜀 \(outcome.skipped)개" }
+        print(line)
+
+    case "theme-eval":
+        let path = option("--gold") ?? evalDirectory + "/themes-gold.json"
+        let runs = max(1, option("--runs").flatMap(Int.init) ?? 2)
+        guard let raw = FileManager.default.contents(atPath: path),
+              let file = try? JSONSerialization.jsonObject(with: raw) as? [String: Any],
+              let gold = file["tasks"] as? [[String: String]] else { fail("정답 파일을 읽을 수 없음: \(path)") }
+        let digests = try db.writer.read { try GraphTx($0).openTasks(limit: 10_000) }
+        let byKey = Dictionary(digests.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let targets = gold.compactMap { item -> ThemeStep.Target? in
+            guard let key = item["key"], let digest = byKey[key] else { return nil }
+            return ThemeStep.Target(key: key, title: digest.title, goal: digest.goal, taskType: digest.taskType,
+                                    recent: digest.recentSummaries, needsTheme: true, needsType: true)
+        }
+        guard targets.count == gold.count else { fail("정답의 업무 \(gold.count - targets.count)개를 DB 에서 찾지 못함") }
+        let client = makeClient().client
+        let defaultKeys = Set(ThemeCatalog.defaults.map(ThemeCatalog.matchKey))
+        print("업무 \(targets.count)개 — 빈 분야 목록에서 \(runs)번 판정 (기록하지 않음)")
+        var results: [[String: ThemeStep.Answer]] = []
+        for run in 1...runs {
+            let answers = try await ThemeStep.judge(targets: targets, themes: [], llm: client)
+            results.append(answers)
+            var themeOK = 0, typeOK = 0, misses: [String] = []
+            for item in gold {
+                let answer = answers[item["key"] ?? ""]
+                let themeHit = themeKey(answer?.theme) == themeKey(item["theme"])
+                let typeHit = answer?.taskType != nil && answer?.taskType == TBox.leafType(item["type"] ?? "")
+                if themeHit { themeOK += 1 }
+                if typeHit { typeOK += 1 }
+                if !themeHit || !typeHit {
+                    misses.append("    \(item["title"] ?? "") — 정답 \(item["theme"] ?? "")/\(item["type"] ?? ""), 답 \(answer?.theme ?? "-")/\(answer?.taskType ?? "-")")
+                }
+            }
+            let created = Set(answers.values.compactMap(\.theme).map { ThemeCatalog.canonical($0) }.filter { !defaultKeys.contains(ThemeCatalog.matchKey($0)) })
+            print("  \(run)회: 분야 \(themeOK)/\(gold.count), 종류 \(typeOK)/\(gold.count), 새 분야 \(created.count)" + (created.isEmpty ? "" : " (\(created.sorted().joined(separator: ", ")))"))
+            for line in misses { print(line) }
+        }
+        if results.count >= 2 {
+            let flipped = gold.filter { item in
+                let key = item["key"] ?? ""
+                return themeKey(results[0][key]?.theme) != themeKey(results[1][key]?.theme) || results[0][key]?.taskType != results[1][key]?.taskType
+            }.count
+            print("  흔들림: 두 번의 결과가 다른 업무 \(flipped)/\(gold.count)")
+        }
+
+    case "set-theme":
+        let clear = flag("--clear")
+        guard let key = args.first, clear || args.count > 1 else { fail("사용법: set-theme TASK_ID 분야이름 | set-theme TASK_ID --clear") }
+        let name = args.dropFirst().joined(separator: " ")
+        let instance = InstanceLock(databasePath: dbPath)
+        guard instance.acquire() else { fail("이 DB 를 쓰는 Sillog 앱이 실행 중입니다. 앱을 종료한 뒤 다시 실행하세요.") }
+        defer { instance.release() }
+        let now = Date().timeIntervalSince1970
+        do {
+            let message = try db.writer.write { conn -> String in
+                let tx = GraphTx(conn)
+                guard let task = try tx.node(label: NodeLabel.task, key: key) else { throw CommandError(description: "업무 없음: \(key)") }
+                let before = try ThemeGraph.theme(ofTask: task.id, tx)?.title ?? "(분야 없음)"
+                try ThemeGraph.detach(taskId: task.id, tx)
+                if clear { return "\(task.title): \(before) → (분야 없음)" }
+                let stamp = task.props["last_active"]?.doubleValue ?? task.updatedAt
+                guard let attached = try ThemeGraph.attach(taskId: task.id, to: name, tx, now: now, linkedAt: stamp) else {
+                    throw CommandError(description: "붙일 수 없음: 이름이 비었거나 \(ThemeCatalog.nameLimit)자를 넘거나, 분야가 \(ThemeCatalog.limit)개로 찼습니다")
+                }
+                return "\(task.title): \(before) → \(attached.node.title)"
+            }
+            print(message)
+        } catch let error as CommandError {
+            fail(error.description)
+        }
+
+    case "pipeline-graph":
+        print(StagedPipeline.graph.mermaid())
 
     case "replay-batch":
         let ids = args.compactMap(Int64.init)

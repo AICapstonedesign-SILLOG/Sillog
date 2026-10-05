@@ -12,11 +12,22 @@ final class TestClock: @unchecked Sendable {
     }
 }
 
+extension BatchConfig {
+    /// 한 번 호출 형식(assign_rows)으로 답하는 가짜 LLM 을 쓰는 테스트용. 테마 단계는 따로 테스트하므로 끈다
+    static var singleCall: BatchConfig {
+        var config = BatchConfig()
+        config.pipeline = .single
+        config.themes = false
+        return config
+    }
+}
+
 final class StubLLM: LLMClient, @unchecked Sendable {
     private let lock = NSLock()
     private var responses: [Result<String, LLMError>]
     private(set) var calls = 0
     private(set) var lastUser = ""
+    private(set) var users: [String] = []
     let modelName = "stub-model"
 
     init(_ responses: [Result<String, LLMError>]) { self.responses = responses }
@@ -25,6 +36,7 @@ final class StubLLM: LLMClient, @unchecked Sendable {
         let next: Result<String, LLMError> = lock.withLock {
             calls += 1
             lastUser = user
+            users.append(user)
             return responses.isEmpty ? .failure(LLMError.transport("no stub")) : responses.removeFirst()
         }
         let json = try next.get()
@@ -49,7 +61,7 @@ final class OntologyBatcherTests: XCTestCase {
     }
 
     private func makeBatcher(_ db: WGDatabase, _ llm: StubLLM, _ clock: TestClock) -> OntologyBatcher {
-        OntologyBatcher(db: db, llm: llm, config: BatchConfig(), home: "/Users/me", fileExists: { _ in false }, clock: { clock.now })
+        OntologyBatcher(db: db, llm: llm, config: .singleCall, home: "/Users/me", fileExists: { _ in false }, clock: { clock.now })
     }
 
     func testSkipsWhenNothingToDoOrTooYoung() async throws {

@@ -163,7 +163,7 @@ final class ChatBatchTests: XCTestCase {
         """), .success("""
         {"tasks":[{"ref":"A","match":"new","title":"다른 작업","task_type":"기타"}],"rows":[{"rows":"1-2","task":"A"}],"work":[{"task":"A","summary":"s","topics":[]}]}
         """)])
-        let batcher = OntologyBatcher(db: db, llm: llm, home: "/Users/me", fileExists: { _ in false }, clock: { 2_000 })
+        let batcher = OntologyBatcher(db: db, llm: llm, config: .singleCall, home: "/Users/me", fileExists: { _ in false }, clock: { 2_000 })
         guard case .ok = await batcher.runIfDue(force: true) else { return XCTFail("첫 배치 성공해야 함") }
         XCTAssertTrue(llm.lastUser.contains("| Claude Code | AIChat |"), "창보다 오래된 미처리 대화도 들어간다")
         let clock = DateFormatter(); clock.dateFormat = "HH:mm"; clock.timeZone = .current
