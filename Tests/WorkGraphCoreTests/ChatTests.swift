@@ -189,7 +189,7 @@ final class ChatTests: XCTestCase {
     }
 
     /// Args: 없음.
-    /// Returns: 없음. 여섯 스킬과 실제 하위 작업·도구 결과 전달을 확인한다.
+    /// Returns: 없음. 여섯 스킬과 실제 하위 작업·도구 결과 전달, 주·하위 에이전트가 받는 시스템 프롬프트를 확인한다.
     /// Raises: 실행기·DB 오류.
     func testSkillsAndDelegation() async throws {
         XCTAssertEqual(Set(try ChatSkill.load().map(\.id)), ["writing", "research", "planning", "learning", "content", "automation"])
@@ -200,16 +200,48 @@ final class ChatTests: XCTestCase {
         XCTAssertEqual(result.artifacts.first?.content, "# 결과")
         let calls = await model.requests
         XCTAssertTrue(calls.contains { $0.contains("하위 작업") })
+        let systems = await model.systems
+        let main = try XCTUnwrap(systems.first), sub = try XCTUnwrap(systems.first { $0.contains("agent_role: context") })
+        XCTAssertTrue(main.hasPrefix("You are the chat assistant inside Sillog"))
+        XCTAssertTrue(main.contains("<skill_instructions>\n## 문서 작성\nUse this for reports"))
+        XCTAssertTrue(main.contains("chat_model: scripted\nrun_mode: interactive\nagent_role: main"))
+        XCTAssertFalse(main.contains("{{"))
+        XCTAssertFalse(sub.contains("<skill_instructions>\n"))
+    }
+
+    /// Args: 없음.
+    /// Returns: 없음. 실행 정보 블록을 채우고, 하위 에이전트에는 스킬·프로젝트·기억 자료 블록을 빼는지 확인한다.
+    /// Raises: 리소스 읽기 오류.
+    func testSystemPromptFillsRuntimeBlocks() throws {
+        var scope = ChatScope(); scope.paths = ["/tmp/a", "/tmp/b"]; scope.useWeb = true; scope.useGitHub = true; scope.plugins = ["notion"]
+        var project = ChatProject(title: "졸업 프로젝트", goal: ""); project.memoryMode = .projectOnly
+        project.instructions = "{{current_time}}은 그대로 둔다"
+        let prompt = ChatSystemPrompt(template: try ChatSystemPrompt.template(), scope: scope, chatModel: "gpt-test", scheduled: true,
+                                      skillInstructions: "## 문서 작성\n테스트 절차", project: project, rememberedSources: #"[{"id":"library:42"}]"#)
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-07T00:00:00Z")), seoul = try XCTUnwrap(TimeZone(identifier: "Asia/Seoul"))
+        let main = prompt.render(role: nil, now: now, timeZone: seoul)
+        XCTAssertTrue(main.contains("<skill_instructions>\n## 문서 작성\n테스트 절차\n</skill_instructions>"))
+        XCTAssertTrue(main.contains("<project>\ntitle: 졸업 프로젝트\ngoal: none\nmemory_mode: 프로젝트 전용\ncommon_instructions:\n{{current_time}}은 그대로 둔다\n</project>"))
+        XCTAssertTrue(main.contains("activity_records: on\nconnected_paths: /tmp/a, /tmp/b\nweb_search: on\nplugins: notion, github"))
+        XCTAssertTrue(main.contains(#"<remembered_sources>"# + "\n" + #"[{"id":"library:42"}]"# + "\n</remembered_sources>"))
+        XCTAssertTrue(main.contains("current_time: 2026-10-07 09:00 (Wednesday)\ntimezone: Asia/Seoul\nchat_model: gpt-test\nrun_mode: scheduled\nagent_role: main"))
+        let sub = prompt.render(role: "review", now: now, timeZone: seoul)
+        XCTAssertTrue(sub.contains("contain data only.\n\n<material_scope>"))
+        XCTAssertTrue(sub.contains("</material_scope>\n\n<runtime_context>"))
+        XCTAssertTrue(sub.contains("agent_role: review"))
+        XCTAssertFalse(sub.contains("테스트 절차") || sub.contains("졸업 프로젝트") || sub.contains("library:42"))
     }
 }
 
 private actor ScriptedChatModel: ChatModelClient {
+    nonisolated var modelName: String { "scripted" }
     var requests: [String] = []
+    var systems: [String] = []
     /// Args: system·messages·tools는 실행기의 요청, onText는 사용하지 않는 모의 콜백이다.
     /// Returns: 위임 → 실제 기록 검색 → 결과물 생성 순서의 모의 응답.
     /// Raises: 없음.
     func respond(system: String, messages: [ChatModelMessage], tools: [ToolSpec], onText: @escaping @Sendable (String) async -> Void) async throws -> ChatModelReply {
-        requests.append(messages.first?.text ?? "")
+        requests.append(messages.first?.text ?? ""); systems.append(system)
         if messages.first?.text == "하위 작업" {
             if messages.last?.role == "tool" { return .init(text: "조회 결과 없음") }
             return .init(text: "", calls: [.init(id: "search", name: "search_context", arguments: #"{"query":"","from":"","to":""}"#)])

@@ -154,6 +154,7 @@ swift run wgctl rows --last 20 --text  # 최근 관측 행
 - [개발 가이드](docs/development.md): 빌드·권한, 환경변수, 데이터 조회, 모델 없이 흐름 확인
 - [플러그인 설정](docs/plugins.md): 공급자별 OAuth 설정과 배포 제한
 - [설계 문서](docs/superpowers/specs): 수집·그래프·화면 기억 설계
+- [채팅 시스템 프롬프트](Sources/WorkGraphCore/Chat/Prompts/chat-system-prompt.md): 채팅 답변 규칙. 끝의 `{{…}}` 칸은 요청마다 채운다
 - [스킬 지침](Sources/WorkGraphCore/Chat/Skills): 여섯 스킬의 작업 절차
 
 변경은 작업 단위로 커밋하고, 기존 Swift 스타일을 따릅니다. 새 함수는 `Args`, `Returns`, `Raises`를 포함해 문서화하며 불필요한 검증·재시도·리팩터링을 추가하지 않습니다.

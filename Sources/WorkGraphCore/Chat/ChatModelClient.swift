@@ -36,6 +36,9 @@ public struct ChatModelReply: Sendable {
 }
 
 public protocol ChatModelClient: Sendable {
+    /// 시스템 프롬프트의 chat_model에 넣는 모델 이름.
+    var modelName: String { get }
+
     /// Args: system은 작업 지침, messages는 대화, tools는 허용 도구, onText는 본문 조각 콜백이다.
     /// Returns: 완료된 본문과 도구 호출.
     /// Raises: 인증·HTTP·전송·응답 형식 오류 및 취소.
