@@ -51,12 +51,25 @@ final class AppState: ObservableObject {
     @Published var permissionGrants = PermissionGrants(accessibility: false, screenRecording: false)
     /// 이번 실행에서 화면 기록 권한을 요청했다. 허용해도 다시 실행해야 적용된다 (OUT-05)
     @Published var askedScreenRecording = false
+    /// 원문 보관 정책. DB 에 저장해 wgctl 과 같은 값을 쓴다
+    @Published var retention = RetentionPolicy.standard
+    @Published var storageUsage: StorageUsage?
+    @Published var consolidationReport: Consolidator.Report?
+    @Published var consolidating = false
+    /// '지금 정리' 미리보기·첫 동의 시트
+    @Published var cleanupPreview: CleanupPreview?
+    @Published var retentionPins: [RetentionPin] = []
+    @Published var pruneConsented = false
+    /// 원문(화면 텍스트)이 남아 있는 첫 날. 정리한 적이 없으면 nil
+    @Published var rawRecordsSince: String?
 
     let databasePath = WGDatabase.defaultPath()
     private(set) var db: WGDatabase?
     private(set) var store: EventStore?
     private var coordinator: CollectorCoordinator?
     private var batcher: OntologyBatcher?
+    /// 기록 정리 (사용 시간 기록 → 주간·월간 요약 → 동의했으면 원문 정리). 실행 잠금을 가진 이 인스턴스에서만 돈다
+    var consolidator: Consolidator?
     var suggester: FolderSuggester?
     var folderIndex: FolderIndex?
     var folderIndexAt = 0.0
@@ -101,6 +114,8 @@ final class AppState: ObservableObject {
             batchConfig.themes = UserDefaults.standard.bool(forKey: "themes")
             let batcher = OntologyBatcher(db: database, llm: makeClient(), config: batchConfig)
             self.batcher = batcher
+            self.consolidator = Consolidator(db: database, llm: makeClient())
+            loadRetentionState()
             let cardsOn = settings.screenCards && settings.captureScreenshots
             Task { await batcher.setScreenCards(cardsOn) }
             // 앱을 시작할 때 분야가 없거나 종류가 옛 판인 업무를 정리한다 (처음 한 번은 기존 업무 전부). 붙였으면 그래프를 새로 그린다
@@ -226,6 +241,12 @@ final class AppState: ObservableObject {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 60_000_000_000)
                 await self?.runBatch(force: false)
+            }
+        })
+        tasks.append(Task { [weak self] in                 // 기록 정리: 시작 10분 뒤부터 10분마다 조건 확인 (하루 한 번, 자리를 비웠을 때)
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 600_000_000_000)
+                await self?.consolidateIfDue()
             }
         })
     }
@@ -495,10 +516,11 @@ final class AppState: ObservableObject {
         let cardsOn = settings.screenCards && settings.captureScreenshots
         if let db { suggester = FolderSuggester(db: db, llm: makeQuickClient()) }
         folderIndex = nil                                   // 검색 폴더가 바뀌었을 수 있으니 다음 제안 때 다시 색인
-        Task { [coordinator, batcher] in
+        Task { [coordinator, batcher, consolidator] in
             await coordinator?.update(settings: collectorSettings)
             await batcher?.setLLM(client)
             await batcher?.setScreenCards(cardsOn)
+            await consolidator?.setLLM(client)
         }
     }
 

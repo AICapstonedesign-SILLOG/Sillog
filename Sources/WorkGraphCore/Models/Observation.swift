@@ -169,17 +169,21 @@ public struct BatchRecord: Codable, Equatable, Sendable, FetchableRecord, Mutabl
     /// LLM 이 돌려준 구조화 결과(JSON)와, 짧은 구간을 다듬은 뒤 실제로 그래프에 반영한 결과(JSON)
     public var llmPatch: String?
     public var appliedPatch: String?
+    /// 시스템 프롬프트 원문은 prompt_blobs 에 한 번만 두고 해시로 가리킨다 (읽을 때 EventStore 가 원문을 채운다)
+    public var systemPromptHash: String?
 
     public init(id: Int64? = nil, startedAt: Double, finishedAt: Double? = nil, fromObs: Int64? = nil, toObs: Int64? = nil,
                 rowCount: Int = 0, status: String, model: String? = nil, promptTokens: Int = 0, completionTokens: Int = 0,
                 error: String? = nil, rawResponse: String? = nil, stats: String? = nil,
-                systemPrompt: String? = nil, userPrompt: String? = nil, llmPatch: String? = nil, appliedPatch: String? = nil) {
+                systemPrompt: String? = nil, userPrompt: String? = nil, llmPatch: String? = nil, appliedPatch: String? = nil,
+                systemPromptHash: String? = nil) {
         self.id = id; self.startedAt = startedAt; self.finishedAt = finishedAt
         self.fromObs = fromObs; self.toObs = toObs; self.rowCount = rowCount
         self.status = status; self.model = model
         self.promptTokens = promptTokens; self.completionTokens = completionTokens
         self.error = error; self.rawResponse = rawResponse; self.stats = stats
         self.systemPrompt = systemPrompt; self.userPrompt = userPrompt; self.llmPatch = llmPatch; self.appliedPatch = appliedPatch
+        self.systemPromptHash = systemPromptHash
     }
 
     enum CodingKeys: String, CodingKey {
@@ -199,6 +203,7 @@ public struct BatchRecord: Codable, Equatable, Sendable, FetchableRecord, Mutabl
         case userPrompt = "user_prompt"
         case llmPatch = "llm_patch"
         case appliedPatch = "applied_patch"
+        case systemPromptHash = "system_prompt_hash"
     }
 
     public mutating func didInsert(_ inserted: InsertionSuccess) { id = inserted.rowID }

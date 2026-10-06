@@ -45,6 +45,7 @@ public struct ChatTools: Sendable {
             tools += [
                 Self.spec("search_context", "허용된 업무·대화·결과물의 전체 기록을 검색한다. 프로젝트 전용 기록은 소속 밖에서 읽지 않는다. 현재 프로젝트의 대화를 우선한다.", ["query": "핵심 검색어. 빈 문자열은 최근 기록", "from": "시작일 YYYY-MM-DD, 제한 없으면 빈 문자열", "to": "종료일 YYYY-MM-DD, 제한 없으면 빈 문자열"]),
                 Self.spec("read_context", "검색한 원문을 이어 읽는다. 긴 대화는 메시지 ID로 원문을 읽는다.", ["id": "검색 결과의 id", "start": "대화는 시작 메시지 번호, 메시지는 시작 문자 위치. 처음이면 1"]),
+                Self.spec("summarize_period", "기간의 업무별 작업 시간, 많이 쓴 자료, 앱 분포, 문제·할 일 변화를 사용 시간 기록으로 계산한다. 원문이 정리된 기간도 같은 수치를 돌려준다. 기간 시간·건수는 이 도구로 계산한다.", ["from": "시작일 YYYY-MM-DD", "to": "종료일 YYYY-MM-DD (포함)", "task": "업무 key 또는 제목 일부. 전체면 빈 문자열"]),
             ]
         }
         if !scope.libraryIDs.isEmpty || scope.useActivity || scope.projectID != nil {
@@ -99,6 +100,11 @@ public struct ChatTools: Sendable {
             let to = try Self.date(args["to"] ?? "", fallback: Date().timeIntervalSince1970, endOfDay: true)
             return try Self.output(search.search(query: args["query"] ?? "", from: from, to: to))
         case "read_context": return try Self.output(search.read(args["id"] ?? "", start: Int(args["start"] ?? "1") ?? 1))
+        case "summarize_period":
+            let to = try Self.date(args["to"] ?? "", fallback: Date().timeIntervalSince1970, endOfDay: true)
+            let from = try Self.date(args["from"] ?? "", fallback: to - 7 * 86_400)
+            guard from < to else { throw ChatToolError.unavailable("시작일이 종료일보다 늦습니다.") }
+            return try Self.output(search.summarize(from: from, to: to, task: args["task"]))
         case "search_library": return try Self.output(library.search(args["query"] ?? "", ids: currentLibraryIDs()))
         case "read_library": return try Self.output([library.read(args["id"] ?? "", ids: currentLibraryIDs(), start: Int(args["start"] ?? "1") ?? 1)])
         case "list_files": return .init(text: try listFiles(path: args["path"] ?? "", query: args["query"] ?? ""))

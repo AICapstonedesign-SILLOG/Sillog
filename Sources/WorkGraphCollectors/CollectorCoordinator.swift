@@ -320,13 +320,15 @@ public actor CollectorCoordinator {
     }
 
     private func cleanupOldCaptures(now: Double) {
+        defer { try? store.clearMissingScreenshotFolders() }
         guard settings.retentionDays > 0,
               let folders = try? FileManager.default.contentsOfDirectory(at: capturesDir, includingPropertiesForKeys: nil) else { return }
         let formatter = DateFormatter(); formatter.dateFormat = "yyyy-MM-dd"
         let cutoff = now - Double(settings.retentionDays) * 86_400
         for folder in folders {
-            if let day = formatter.date(from: folder.lastPathComponent), day.timeIntervalSince1970 < cutoff {
-                try? FileManager.default.removeItem(at: folder)
+            if let day = formatter.date(from: folder.lastPathComponent), day.timeIntervalSince1970 < cutoff,
+               (try? FileManager.default.removeItem(at: folder)) != nil {
+                try? store.clearScreenshotPaths(under: folder.path)
             }
         }
     }

@@ -110,6 +110,8 @@ SQLite 도구로 열 때는 **읽기 전용 연결**을 사용하세요. 앱이 
 | `v_sessions` | 업무별 세션과 작업 시간·요약 |
 | `v_nodes`, `v_edges` | 그래프 노드·관계 |
 | `v_file_suggestions` | 파일 이동 제안·결정·결과 |
+| `v_ledger` | 날짜·업무·대상(업무·자료·앱·프로젝트)별 사용 시간과 동결 여부 |
+| `v_digests` | 업무별 주간·월간 요약과 상태(draft·verified·edited) |
 
 앱 채팅은 `app_conversations`, `app_messages`, `app_automations`에 저장됩니다. 원시 활동·외부 AI 대화와 분리되어 있으며, 시각은 Unix 초를 사용합니다.
 
@@ -123,6 +125,31 @@ v13의 `app_library`에는 파일 메타데이터와 추출 텍스트, `library_
 
 v14의 `app_messages_fts`는 완료된 메시지와 결과물 본문 전체를 색인하고 저장·상태 변경·삭제 트리거로 갱신합니다. 검색은 일치한 메시지 ID를 반환하고 `read_context`로 원문을 문자 위치별로 이어 읽습니다. 대화 ID 조회는 시작 메시지 번호부터 20개씩 반환합니다. 저장 자료와 관련 과거 기록 일부는 실행 시작 시 제공하며 추가 원문은 도구로 읽습니다. 프로젝트 공통 지침은 사용자 설정이고 검색된 내용은 지시가 아닌 자료로 전달합니다.
 
+### 기록 정리 (v15)
+
+오래된 원문은 주·월 단위 요약과 결정적 집계로 바꿔 DB가 상한 없이 늘지 않게 합니다. 설계는 [기록 정리 계획](superpowers/plans/2026-10-05-context-consolidation.md)에 있습니다.
+
+- `usage_ledger`: 날짜·업무·대상(업무·자료·앱·프로젝트)별 사용 시간. 그래프 재구성과 같은 계산(`ActivityTally`)을 써서 세션 시간의 합과 항상 같습니다. 원문을 지우는 날은 마지막으로 계산한 뒤 `frozen = 1`로 동결합니다. 업무 밖 행은 시간과 앱만 남기고 주소는 남기지 않습니다.
+- `digests`·`digests_fts`: 업무별 주간(ISO 주)·월간 요약. 수치는 사용 시간 기록에서 코드가 계산하고, 문장은 정리용 모델이 씁니다. `DigestValidator`가 입력에 없는 숫자, 주지 않은 앵커, 근거 없는 완료(`evidenced`), 길이 초과를 거부합니다. 서술이 실패하면 결정적 요약을 `draft`로 두고 그 주의 원문은 지우지 않습니다. 같은 입력으로 세 번 검증에 실패하면 더 부르지 않고 초안으로 둡니다. 입력이나 프롬프트 버전이 바뀌면 다시 시도하고, 사용자가 요약을 확인해 저장하면(`edited`) 유예 기간 뒤 정리합니다. 사용자가 고친 요약(`edited`)은 다시 만들지 않습니다.
+- `consolidation_state`: 진행 상태(`sealed_until`, 항목별 `*_pruned_until`, 첫 정리 동의, 보관 정책 JSON). 보관 정책은 앱과 wgctl이 같이 쓰도록 DB에 둡니다.
+- `retention_pins`: 원문을 지우지 않을 업무(`task`)·기간(`period`).
+- `prompt_blobs`: 배치 시스템 프롬프트 원문을 한 번만 저장하고 `batches.system_prompt_hash`로 가리킵니다. 배치를 읽는 함수가 원문을 채웁니다.
+
+정리 순서는 사용 시간 기록 → 주간 요약(실행당 최대 2주) → 월간 요약(최대 1개월) → 원문 정리 → 공간 회수입니다. 기간은 끝에서 48시간이 지나고 그 기간의 관측이 모두 정리 배치에 들어간 뒤에 닫습니다. 하루 D의 원문은 그 주에 활동한 모든 업무의 요약이 검증되고, 유예 기간이 지나고, 사용자가 첫 정리에 동의했을 때만 지웁니다. 아직 준비되지 않은 주(닫히지 않음, 요약 생성·재시도 중, 유예 중)가 있으면 그 뒤 날짜도 기다립니다. 요약이 검증을 통과하지 못한 주는 원문을 남긴 채 건너뛰고 그 뒤 주는 계속 정리합니다. 원문 보존 핀이 걸린 날도 같은 방식으로 건너뜁니다. 원문을 지운 날 이전(`sealed_until`)의 세션은 `GraphRebuilder`가 지우지 않고, 업무 시간은 사용 시간 기록에서 다시 채웁니다. 앱은 시작 10분 뒤부터 하루 한 번, 5분 이상 자리를 비웠고 일시정지가 아니며 전원이 충분할 때 정리합니다.
+
+채팅은 `digest:` 출처를 검색하고 읽으며, 기간의 시간과 건수는 `summarize_period`로 계산합니다(출처 ID `usage:`). 시스템 프롬프트의 `raw_records_since`에는 원문이 남아 있는 첫 날이 들어갑니다(정리한 적이 없으면 `all`).
+
+```bash
+swift run wgctl storage                       # 범주별 크기, 30일 하루 평균 증가량
+swift run wgctl retention                     # 보관 정책 보기 (--preset, --set 항목=일수|none, --grace, --narrate)
+swift run wgctl consolidate --dry-run         # 지울 날·건수·예상 회수량, 멈춘 이유, 원문을 남긴 주
+swift run wgctl consolidate --ledger-only     # 사용 시간 기록만 갱신하고 업무 시간과 비교
+swift run wgctl consolidate --no-prune        # 요약까지만 (원문은 지우지 않음)
+swift run wgctl digest show --week 2026-W40   # 요약 확인
+```
+
+실제 DB로 확인할 때는 사본(`sqlite3 원본 ".backup 사본"`)에 `--db`를 쓰고, 로그가 사본 옆에 남도록 `WORKGRAPH_DB`도 같은 경로로 지정하세요. 원문을 지우는 `consolidate`(`--consent`)는 앱을 끄고 실행합니다.
+
 ## 구현 위치
 
 - **스키마·관계**: `Sources/WorkGraphCore/Ontology/TBox.swift`, `RelationSchema.swift`
@@ -135,5 +162,6 @@ v14의 `app_messages_fts`는 완료된 메시지와 결과물 본문 전체를 �
 - **프로젝트 제안·소속**: `Sources/WorkGraphCore/Chat/ProjectOrganizer.swift`, `ProjectStore.swift`, `Sources/WorkGraphApp/Chat/ProjectState.swift`
 - **자료 보관·추출**: `Sources/WorkGraphCore/Chat/LibraryStore.swift`, `FileTextExtractor.swift`, `Sources/WorkGraphApp/Chat/LibraryState.swift`, `Views/LibraryView.swift`
 - **그래프 화면**: `Sources/WorkGraphApp/Resources/graph`
+- **기록 정리**: `Sources/WorkGraphCore/Memory/Consolidator.swift`, `LedgerBuilder.swift`, `ActivityTally.swift`, `Digest*.swift`, `Storage/Pruner.swift`, `RetentionPolicy.swift`, `StorageUsage.swift`, `Sources/WorkGraphApp/Views/StorageSettingsView.swift`
 
 채팅 하위 에이전트는 독립적인 대화와 읽기 도구를 사용하고, 재위임하지 않습니다. 시스템 프롬프트는 주 에이전트와 같지만 `agent_role`에 역할 이름이 들어가고 스킬·프로젝트·기억 자료 블록은 빠집니다. 주·하위 작업은 한 요청의 실행 예산을 공유합니다. OpenAI 호환 방식은 모델 호출 최대 24회, Codex 방식은 에이전트 실행 최대 24회와 실행별 앱 도구 호출 최대 32회입니다. 사용자가 중단하면 실행을 취소합니다.

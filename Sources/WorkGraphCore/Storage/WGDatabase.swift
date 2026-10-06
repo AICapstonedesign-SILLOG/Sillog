@@ -298,6 +298,7 @@ public final class WGDatabase: @unchecked Sendable {
         ProjectStore.migrate(&migrator)
         LibraryStore.migrate(&migrator)
         ContextSearch.migrate(&migrator)
+        ConsolidationStore.migrate(&migrator)
         return migrator
     }
 }

@@ -9,6 +9,8 @@ struct ChatSystemPrompt: Sendable {
     var skillInstructions = ""
     var project: ChatProject?
     var rememberedSources = ""
+    /// 원문이 남아 있는 첫 날. 정리한 적이 없으면 nil
+    var rawRecordsSince: String?
 
     /// Args: 없음.
     /// Returns: 앱에 포함된 채팅 시스템 프롬프트 원문.
@@ -38,6 +40,7 @@ struct ChatSystemPrompt: Sendable {
             "remembered_sources": rememberedSources,
             "current_time": formatter.string(from: now), "timezone": timeZone.identifier,
             "chat_model": chatModel, "run_mode": scheduled ? "scheduled" : "interactive", "agent_role": role ?? "main",
+            "raw_records_since": rawRecordsSince ?? "all",
         ].mapValues { $0.isEmpty ? "none" : $0 }
         return Self.fill(template, omitting: omitted, values: values)
     }

@@ -152,6 +152,7 @@ public struct ChatRunner: Sendable {
         let procedures = try (selected.isEmpty ? skills : selected).map { "## \($0.title)\n\(try $0.instructions())" }.joined(separator: "\n\n")
         var prompt = ChatSystemPrompt(template: try ChatSystemPrompt.template(), scope: tools.scope, chatModel: backend.modelName,
                                       scheduled: scheduled, skillInstructions: procedures, project: project)
+        if tools.scope.useActivity { prompt.rawRecordsSince = (try? tools.search.rawRecordsSince()) ?? nil }
         let ledger = ChatRunLedger()
         let remembered = try tools.rememberedSources(history: history)
         if !remembered.isEmpty {
@@ -273,9 +274,9 @@ public struct ChatRunner: Sendable {
         if let role {
             let names: Set<String>
             switch role {
-            case "context": names = ["search_context", "read_context"]
+            case "context": names = ["search_context", "read_context", "summarize_period"]
             case "repository": names = ["search_library", "read_library", "list_files", "read_file", "inspect_repository", "read_revision", "github_search", "github_read", "github_list", "drive_search", "drive_read", "notion_search", "notion_read"]
-            case "research": names = ["search_context", "read_context", "search_library", "read_library", "list_files", "read_file", "web_search", "web_read", "gmail_search", "gmail_read", "drive_search", "drive_read", "notion_search", "notion_read"]
+            case "research": names = ["search_context", "read_context", "summarize_period", "search_library", "read_library", "list_files", "read_file", "web_search", "web_read", "gmail_search", "gmail_read", "drive_search", "drive_read", "notion_search", "notion_read"]
             default: return specs
             }
             return specs.filter { names.contains($0.name) }
@@ -310,6 +311,6 @@ public struct ChatRunner: Sendable {
     /// Returns: 사용자에게 표시할 실행 내용.
     /// Raises: 없음.
     private static func toolTitle(_ tool: String) -> String {
-        ["search_context": "기록 검색", "read_context": "기록 상세 확인", "search_library": "보관 자료 검색", "read_library": "보관 자료 읽기", "list_files": "파일 찾기", "read_file": "파일 읽기", "inspect_repository": "Git 이력 확인", "read_revision": "커밋 파일 확인", "github_search": "GitHub 저장소 검색", "github_read": "GitHub 확인", "github_list": "GitHub 파일 목록", "gmail_search": "메일 검색", "gmail_read": "메일 읽기", "drive_search": "Drive 검색", "drive_read": "Drive 읽기", "notion_search": "Notion 검색", "notion_read": "Notion 읽기", "web_search": "웹 검색", "web_read": "웹 원문 확인", "delegate": "작업 분담", "create_artifact": "결과물 생성", "propose_automation": "예약안 작성"][tool] ?? tool
+        ["search_context": "기록 검색", "read_context": "기록 상세 확인", "summarize_period": "기간 집계", "search_library": "보관 자료 검색", "read_library": "보관 자료 읽기", "list_files": "파일 찾기", "read_file": "파일 읽기", "inspect_repository": "Git 이력 확인", "read_revision": "커밋 파일 확인", "github_search": "GitHub 저장소 검색", "github_read": "GitHub 확인", "github_list": "GitHub 파일 목록", "gmail_search": "메일 검색", "gmail_read": "메일 읽기", "drive_search": "Drive 검색", "drive_read": "Drive 읽기", "notion_search": "Notion 검색", "notion_read": "Notion 읽기", "web_search": "웹 검색", "web_read": "웹 원문 확인", "delegate": "작업 분담", "create_artifact": "결과물 생성", "propose_automation": "예약안 작성"][tool] ?? tool
     }
 }

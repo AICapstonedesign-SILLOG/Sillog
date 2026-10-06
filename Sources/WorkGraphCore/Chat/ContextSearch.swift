@@ -134,6 +134,16 @@ public struct ContextSearch: Sendable {
             for row in try Row.fetchAll(conn, sql: "SELECT * FROM screen_cards WHERE ts_end >= ? AND ts_start <= ? AND (\(card.0))\(cards)\(activity) ORDER BY ts_start DESC LIMIT 10", arguments: [from, to, card.1]) {
                 results.append(.init(id: "card:\(row["id"] as Int64)", title: "화면 요약 · \(row["activity"] as String)", location: row["uri"] ?? "", excerpt: "\(Self.date(row["ts_start"])) (AI 요약)\n" + String((row["content"] as String).prefix(1600))))
             }
+            // 주간·월간 요약: 원문이 정리된 기간을 대신한다. 업무 접근 범위를 그대로 따른다
+            let digest = Self.match(needle, index: "digests_fts", row: "d.id", fallback: "d.title || ' ' || d.body")
+            for row in try Row.fetchAll(conn, sql: """
+                SELECT d.id, d.title, d.body FROM digests d JOIN nodes t ON t.label = 'Task' AND t.key = d.task_key
+                WHERE d.period_end > ? AND d.period_start <= ? AND (\(digest.0))\(Self.taskRestriction("t.id", access))\(activity)
+                ORDER BY d.period_start DESC, d.level DESC LIMIT 8
+                """, arguments: [from, to, digest.1]) {
+                results.append(.init(id: "digest:\(row["id"] as Int64)", title: row["title"], location: "",
+                                     excerpt: "AI 요약 (수치는 사용 시간 기록)\n" + String((row["body"] as String).prefix(1600))))
+            }
             let snapshot = Self.match(needle, index: "text_snapshots_chat_fts", row: "o.text_id", fallback: "COALESCE(t.text, '')")
             for row in try Row.fetchAll(conn, sql: """
                 SELECT o.id, o.ts, o.app_name, o.window_title, o.url, o.doc_path, t.text
@@ -209,6 +219,10 @@ public struct ContextSearch: Sendable {
                 case "observation": allowed = try Bool.fetchOne(conn, sql: "SELECT EXISTS(SELECT 1 FROM observations WHERE id = ?\(Self.taskRestriction("task_id", access)))", arguments: [id]) == true
                 case "card": allowed = try Bool.fetchOne(conn, sql: "SELECT EXISTS(SELECT 1 FROM screen_cards WHERE id = ?\(Self.cardRestriction(access)))", arguments: [id]) == true
                 case "chat": allowed = try Bool.fetchOne(conn, sql: "SELECT EXISTS(SELECT 1 FROM chat_messages WHERE id = ?\(Self.taskRestriction("task_id", access)))", arguments: [id]) == true
+                case "digest":
+                    allowed = try Bool.fetchOne(conn, sql: """
+                        SELECT EXISTS(SELECT 1 FROM digests d JOIN nodes t ON t.label = 'Task' AND t.key = d.task_key WHERE d.id = ?\(Self.taskRestriction("t.id", access)))
+                        """, arguments: [id]) == true
                 default: allowed = false
                 }
                 guard allowed else { return [] }
@@ -230,8 +244,111 @@ public struct ContextSearch: Sendable {
             case "chat":
                 guard let row = try Row.fetchOne(conn, sql: "SELECT * FROM chat_messages WHERE id = ?", arguments: [id]) else { return [] }
                 return [.init(id: sourceID, title: "사용자의 요청 (실행 완료 증거 아님)", location: row["cwd"] ?? "", excerpt: String((row["text"] as String).prefix(18000)))]
+            case "digest":
+                guard let digest = try DigestStore.digest(conn, id: id) else { return [] }
+                var header = "AI 요약 · 수치는 사용 시간 기록에서 계산"
+                if let pruned = try ConsolidationStore.value(ConsolidationStore.Key.textPrunedUntil, conn),
+                   let boundary = PeriodCalendar().dayEnd(pruned), digest.periodStart < boundary {
+                    header += " · 원문은 \(pruned) 이전 정리됨"
+                }
+                if digest.status == .draft { header += " · 초안(서술 생성 실패로 기록을 나열함)" }
+                let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+                let metrics = (try? encoder.encode(digest.metrics)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+                return [.init(id: sourceID, title: digest.title, location: "",
+                              excerpt: "\(header)\n\(digest.body)\n\n수치: \(metrics)\n근거 key: \(digest.anchors.joined(separator: ", "))")]
             default: return []
             }
+        }
+    }
+
+    /// 원문(화면 텍스트)이 남아 있는 첫 날. 정리한 적이 없으면 nil
+    public func rawRecordsSince() throws -> String? {
+        try db.writer.read { conn in
+            try ConsolidationStore.value(ConsolidationStore.Key.textPrunedUntil, conn).map { PeriodCalendar().addDays($0, 1) }
+        }
+    }
+
+    /// 기간 집계: 업무별 시간, 자주 쓴 자료, 앱 분포(사용 시간 기록), 문제·할 일 변화(그래프). 원문이 정리된 기간도 같은 수치를 낸다
+    /// Args: from·to는 Unix 시각 [from, to), task는 업무 key 또는 제목 일부(없으면 전체)이다.
+    /// Returns: 결정적으로 계산한 집계 한 건.
+    /// Raises: DB 오류.
+    public func summarize(from: Double, to: Double, task: String?, calendar: PeriodCalendar = PeriodCalendar()) throws -> [ChatSource] {
+        guard includeActivity else { return [] }
+        let days = calendar.days(from: from, to: to)
+        guard let firstDay = days.first, let lastDay = days.last else { return [] }
+        guard days.count <= 400 else { throw ChatToolError.unavailable("집계 기간은 400일 이내로 지정하세요.") }
+        return try db.writer.read { conn in
+            let access = try access(conn)
+            var tasks: [String: (id: Int64, title: String)] = [:]
+            for row in try Row.fetchAll(conn, sql: "SELECT id, key, title FROM nodes WHERE label = 'Task'") { tasks[row["key"]] = (row["id"], row["title"]) }
+            func allowed(_ key: String) -> Bool {
+                if key.isEmpty { return !access.projectOnly }
+                guard let id = tasks[key]?.id else { return false }
+                return access.tasks.map { $0.contains(id) } ?? true
+            }
+            var wanted: Set<String>?
+            if let task = task?.trimmingCharacters(in: .whitespacesAndNewlines), !task.isEmpty {
+                wanted = Set(tasks.filter { $0.key == task || $0.value.title.localizedCaseInsensitiveContains(task) }.map(\.key))
+            }
+            let ledger = LedgerBuilder(calendar: calendar)
+            let rows = try ledger.rows(conn, days: days).filter { row in allowed(row.taskKey) && (wanted?.contains(row.taskKey) ?? true) }
+            let frozenDays = try LedgerBuilder.frozenDays(conn, among: days)
+
+            var perTask: [String: (seconds: Double, days: Set<String>)] = [:], perResource: [String: Double] = [:], perApp: [String: Double] = [:]
+            for row in rows {
+                switch row.kind {
+                case .task: perTask[row.taskKey, default: (0, [])].seconds += row.seconds; if row.seconds > 0 { perTask[row.taskKey, default: (0, [])].days.insert(row.day) }
+                case .resource: perResource[row.target, default: 0] += row.seconds
+                case .app: if !row.taskKey.isEmpty { perApp[row.target, default: 0] += row.seconds }
+                case .project: break
+                }
+            }
+            func title(_ label: String, _ key: String) throws -> String {
+                try String.fetchOne(conn, sql: "SELECT title FROM nodes WHERE label = ? AND key = ?", arguments: [label, key]).flatMap { $0.isEmpty ? nil : $0 } ?? key
+            }
+            var lines = ["기간: \(firstDay) ~ \(lastDay) (사용 시간 기록 기준 추정, 유휴 시간 제외" + (frozenDays.isEmpty ? ")" : ", 그중 \(frozenDays.count)일은 원문이 정리돼 동결된 수치)")]
+            let assigned = perTask.filter { !$0.key.isEmpty }.sorted { $0.value.seconds > $1.value.seconds }
+            lines.append("업무별 시간 (합계 \(TimePhrase.approx(assigned.reduce(0) { $0 + $1.value.seconds }))):")
+            for (key, value) in assigned.prefix(30) {
+                lines.append("- \(tasks[key]?.title ?? key): \(TimePhrase.approx(value.seconds)), \(value.days.count)일 [node:\(tasks[key]?.id ?? 0)]")
+            }
+            if assigned.isEmpty { lines.append("- 기록 없음") }
+            if wanted == nil, let off = perTask[""], off.seconds > 0 { lines.append("업무 외·미배정: \(TimePhrase.approx(off.seconds))") }
+            if !perResource.isEmpty {
+                lines.append("많이 쓴 자료:")
+                for (key, seconds) in perResource.sorted(by: { $0.value > $1.value }).prefix(10) {
+                    lines.append("- \(try title(NodeLabel.resource, key)) — \(TimePhrase.approx(seconds)) (\(key))")
+                }
+            }
+            if !perApp.isEmpty {
+                lines.append("업무 중 앱:")
+                for (key, seconds) in perApp.sorted(by: { $0.value > $1.value }).prefix(8) { lines.append("- \(try title(NodeLabel.app, key)) — \(TimePhrase.approx(seconds))") }
+            }
+            // 문제·나중에 할 일의 변화 (그래프에 남아 있다)
+            let taskOf = { (id: Int64) -> String? in tasks.first { $0.value.id == id }?.key }
+            var newProblems = Set<Int64>(), resolvedProblems = Set<Int64>()
+            for row in try Row.fetchAll(conn, sql: """
+                SELECT p.id, pt.dst AS task_id, EXISTS(SELECT 1 FROM edges r WHERE r.src = p.id AND r.type = 'RESOLVED_BY') AS resolved
+                FROM nodes p JOIN edges h ON h.dst = p.id AND h.type = 'HIT' JOIN edges pt ON pt.src = h.src AND pt.type = 'PART_OF'
+                WHERE p.label = 'Problem' AND json_extract(p.props, '$.at') >= ? AND json_extract(p.props, '$.at') < ?
+                """, arguments: [from, to]) {
+                guard let key = taskOf(row["task_id"]), allowed(key), wanted.map({ $0.contains(key) }) ?? true else { continue }
+                newProblems.insert(row["id"])
+                if (row["resolved"] as Int) == 1 { resolvedProblems.insert(row["id"]) }
+            }
+            var newLater = 0, openLater = 0
+            for row in try Row.fetchAll(conn, sql: """
+                SELECT l.props, f.dst AS task_id FROM nodes l JOIN edges f ON f.src = l.id AND f.type = 'FOR'
+                WHERE l.label = 'LaterItem' AND json_extract(l.props, '$.at') >= ? AND json_extract(l.props, '$.at') < ?
+                """, arguments: [from, to]) {
+                guard let key = taskOf(row["task_id"]), allowed(key), wanted.map({ $0.contains(key) }) ?? true else { continue }
+                newLater += 1
+                if JSONValue.decodeObject(row["props"])["done"]?.boolValue != true { openLater += 1 }
+            }
+            lines.append("문제: 새로 생김 \(newProblems.count)건, 그중 해결 \(resolvedProblems.count)건 · 나중에 할 일: 새로 생김 \(newLater)건, 남음 \(openLater)건")
+            let scope = wanted.map { set in ":" + set.sorted().joined(separator: ",") } ?? ""
+            return [.init(id: "usage:\(firstDay)..\(lastDay)\(scope)", title: "사용 시간 집계 · \(firstDay) ~ \(lastDay)", location: "",
+                          excerpt: lines.joined(separator: "\n"))]
         }
     }
 

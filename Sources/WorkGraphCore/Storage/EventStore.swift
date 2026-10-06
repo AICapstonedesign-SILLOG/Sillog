@@ -246,9 +246,48 @@ public struct EventStore: Sendable {
         }
     }
 
+    /// 배치 열 전부. 시스템 프롬프트는 해시로 가리키는 원문을 채운다
+    static let batchSelect = """
+        SELECT b.id, b.started_at, b.finished_at, b.from_obs, b.to_obs, b.row_count, b.status, b.model, b.prompt_tokens, b.completion_tokens,
+               b.error, b.raw_response, b.stats, COALESCE(b.system_prompt, p.text) AS system_prompt, b.user_prompt, b.llm_patch,
+               b.applied_patch, b.system_prompt_hash
+        FROM batches b LEFT JOIN prompt_blobs p ON p.hash = b.system_prompt_hash
+        """
+
     public func recentBatches(limit: Int) throws -> [BatchRecord] {
         try db.writer.read { conn in
-            try BatchRecord.fetchAll(conn, sql: "SELECT * FROM batches ORDER BY id DESC LIMIT ?", arguments: [limit])
+            try BatchRecord.fetchAll(conn, sql: "\(Self.batchSelect) ORDER BY b.id DESC LIMIT ?", arguments: [limit])
+        }
+    }
+
+    /// 이미 지워진 날짜 폴더를 가리키는 경로를 비운다 (예전 정리에서 남은 끊긴 경로). 비운 폴더 수를 돌려준다
+    @discardableResult
+    public func clearMissingScreenshotFolders(fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) throws -> Int {
+        let paths: [String] = try db.writer.read { conn in
+            try String.fetchAll(conn, sql: """
+                SELECT DISTINCT screenshot_path FROM observations WHERE screenshot_path IS NOT NULL
+                UNION SELECT DISTINCT screenshot_path FROM screen_cards WHERE screenshot_path IS NOT NULL
+                """)
+        }
+        let folders = Set(paths.map { ($0 as NSString).deletingLastPathComponent })
+        var cleared = 0
+        for folder in folders where !folder.isEmpty && !fileExists(folder) {
+            try clearScreenshotPaths(under: folder)
+            cleared += 1
+        }
+        return cleared
+    }
+
+    /// 스크린샷 폴더를 지운 뒤 그 폴더를 가리키던 경로를 비운다 (없는 파일을 가리키지 않게)
+    @discardableResult
+    public func clearScreenshotPaths(under folder: String) throws -> Int {
+        let prefix = folder.hasSuffix("/") ? folder : folder + "/"
+        return try db.writer.write { conn in
+            try conn.execute(sql: "UPDATE observations SET screenshot_path = NULL WHERE substr(screenshot_path, 1, ?) = ?", arguments: [prefix.count, prefix])
+            var cleared = conn.changesCount
+            try conn.execute(sql: "UPDATE screen_cards SET screenshot_path = NULL WHERE substr(screenshot_path, 1, ?) = ?", arguments: [prefix.count, prefix])
+            cleared += conn.changesCount
+            return cleared
         }
     }
 
@@ -264,7 +303,7 @@ public struct EventStore: Sendable {
     }
 
     public func batch(id: Int64) throws -> BatchRecord? {
-        try db.writer.read { conn in try BatchRecord.fetchOne(conn, key: id) }
+        try db.writer.read { conn in try BatchRecord.fetchOne(conn, sql: "\(Self.batchSelect) WHERE b.id = ?", arguments: [id]) }
     }
 
     public func counts(since: Double) throws -> (total: Int, unprocessed: Int) {

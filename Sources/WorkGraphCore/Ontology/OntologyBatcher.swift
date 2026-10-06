@@ -144,8 +144,9 @@ public actor OntologyBatcher {
                                          promptTokens: judgment.promptTokens, completionTokens: judgment.completionTokens,
                                          rawResponse: String(judgment.raw.prefix(20_000)),
                                          stats: (try? JSONEncoder().encode(stats)).flatMap { String(data: $0, encoding: .utf8) },
-                                         systemPrompt: judgment.prompt.system, userPrompt: judgment.prompt.user,
-                                         llmPatch: patch.prettyJSON, appliedPatch: Self.describe(assignments, tx: tx))
+                                         userPrompt: judgment.prompt.user,
+                                         llmPatch: patch.prettyJSON, appliedPatch: Self.describe(assignments, tx: tx),
+                                         systemPromptHash: try ConsolidationStore.storePrompt(judgment.prompt.system, conn))
                 try record.insert(conn)
                 let batchId = record.id ?? conn.lastInsertedRowID
                 try EventStore.mark(conn, observationIds: includedIds, batchId: batchId)
@@ -351,7 +352,8 @@ public actor OntologyBatcher {
                                      rowCount: rowCount, status: "failed", model: model,
                                      promptTokens: tokens.0, completionTokens: tokens.1, error: String(message.prefix(1000)),
                                      rawResponse: raw.map { String($0.prefix(20_000)) },
-                                     systemPrompt: prompt?.system, userPrompt: prompt?.user)
+                                     userPrompt: prompt?.user,
+                                     systemPromptHash: try prompt.map { try ConsolidationStore.storePrompt($0.system, conn) })
             try record.insert(conn)
         }
     }

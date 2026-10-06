@@ -7,7 +7,7 @@ struct ChatMessageText: View {
     let sources: [ChatSource]
     let onSource: (ChatSource) -> Void
 
-    private static let citationPattern = try! NSRegularExpression(pattern: #"\[((?:(?:node|observation|card|chat|conversation|message|library|file|git|gmail|drive|notion):|https?://)[^\]\n]+)\]"#)
+    private static let citationPattern = try! NSRegularExpression(pattern: #"\[((?:(?:node|observation|card|chat|conversation|message|library|file|git|gmail|drive|notion|digest|usage):|https?://)[^\]\n]+)\]"#)
 
     /// Args: paragraph는 모델이 작성한 문단, sources는 실제로 조회한 근거이다.
     /// Returns: 식별자를 제거한 문단, 조회된 근거, 확인되지 않은 인용 여부.
