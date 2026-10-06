@@ -11,6 +11,8 @@ struct TaskSummary: Identifiable, Equatable {
     let activeSeconds: Double
     let lastActive: Double
     let sessionCount: Int
+    /// 업무가 속한 분야 (Task -PART_OF-> Theme). 없으면 nil — 업무 탭에서 '분야 없음' 폴더로 간다
+    var theme: String? = nil
 }
 
 struct SessionSummary: Identifiable, Equatable {
@@ -40,7 +42,8 @@ extension AppState {
                 let type = try tx.edges(from: node.id, type: EdgeType.instanceOf).first.flatMap { try tx.node(id: $0.dst)?.title }
                 return TaskSummary(id: node.id, key: node.key, title: node.title, taskType: type,
                                    activeSeconds: node.props["active_seconds"]?.doubleValue ?? 0,
-                                   lastActive: node.props["last_active"]?.doubleValue ?? node.updatedAt, sessionCount: sessions)
+                                   lastActive: node.props["last_active"]?.doubleValue ?? node.updatedAt, sessionCount: sessions,
+                                   theme: try ThemeGraph.theme(ofTask: node.id, tx)?.title)
             }
             .filter { $0.sessionCount > 0 }
             .sorted { $0.lastActive > $1.lastActive }

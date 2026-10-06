@@ -5,7 +5,7 @@ import WorkGraphCore
 /// 스냅샷으로 그릴 화면 목록. 이름은 Figma 화면 번호를 따른다 (Figma 에서 내보낸 같은 이름의 PNG 와 나란히 본다)
 @MainActor
 enum SnapshotCatalog {
-    static var all: [Snapshot] { menus + windows + activity }
+    static var all: [Snapshot] { menus + windows + activity + chat }
 
     /// Figma 창(760) 에서 제목 줄(44)을 뺀 내용 영역
     static let window = CGSize(width: 1180, height: 716)
@@ -52,6 +52,10 @@ enum SnapshotCatalog {
             shot("OUT-W1", MainWindow(), size: window) { s in s.phase = .login; s.loginBlocked = true },
             shot("OUT-W3", MainWindow(), size: window) { s in s.startupError = AppState.alreadyRunningMessage },
             shot("OUT-W4", MainWindow(), size: window) { s in s.bootstrapped = false },
+            // 업무 탭: 분야 폴더 안에 업무 (파일 트리)
+            shot("TK-01", MainWindow(), size: window) { s in
+                s.phase = .ready; s.status = collector(); s.selectedTab = .tasks; s.taskList = themedTasks
+            },
             shot("OUT-W5", MainWindow(), size: window) { s in
                 s.phase = .ready; s.status = collector(); s.batchRunning = true; s.pendingCount = 6
                 s.fileSuggestions = pendingFiles(2); s.taskList = recentTasks; s.selectedTab = .tasks
@@ -66,6 +70,20 @@ enum SnapshotCatalog {
             batchShot("LG-W4", ActivityLogView(section: .batches, showReceived: true)),
             batchShot("LG-W7", ActivityLogView(section: .batches), failedFirst: true),
         ]
+    }
+
+    /// 채팅: 머리의 모델 칩 (누르면 그 자리에서 채팅 모델을 고른다)
+    static var chat: [Snapshot] {
+        guard let database = try? WGDatabase.inMemory() else { return [] }
+        let state = AppState(preview: { s in
+            s.phase = .ready; s.status = collector(); s.selectedTab = .chat
+            s.settings.chatProvider = "codex"; s.settings.chatCodexModel = "gpt-6-luna"
+            s.chatCodexModels = [CodexModel(slug: "gpt-6-luna", displayName: "GPT-6 Luna", defaultEffort: nil),
+                                 CodexModel(slug: "gpt-6", displayName: "GPT-6", defaultEffort: nil)]
+            let offline = OpenAICompatClient(baseURL: URL(string: "http://localhost:5010/v1")!, model: "preview", apiKey: nil)   // 그리기만 하고 부르지 않는다
+            s.chat = ChatState(db: database, makeClient: { .model(offline) }, makeProjectClient: { offline })
+        })
+        return [Snapshot(name: "CH-01", size: window, view: AnyView(MainWindow().environmentObject(state)))]
     }
 
     private static func batchShot(_ name: String, _ view: ActivityLogView, failedFirst: Bool = false) -> Snapshot {
@@ -129,6 +147,18 @@ enum SnapshotCatalog {
         [TaskSummary(id: 1, key: "flask", title: "Flask 웹앱 개발", taskType: nil, activeSeconds: 9600, lastActive: todayAt(14, 32), sessionCount: 3),
          TaskSummary(id: 2, key: "stats", title: "통계학 수업", taskType: nil, activeSeconds: 3000, lastActive: todayAt(12, 10), sessionCount: 1),
          TaskSummary(id: 3, key: "report", title: "분기 성과 보고서", taskType: nil, activeSeconds: 4500, lastActive: todayAt(11, 45), sessionCount: 1)]
+    }
+
+    private static var themedTasks: [TaskSummary] {
+        let rows: [(String, String?, String, Double, Int, Int)] = [
+            ("Sillog 캡스톤 기능·UI 고도화", "프로젝트", "코드작성", 5340, 14, 32), ("WorkGraph 파이프라인 변경사항 커밋·PR 및 그래프 확인", "프로젝트", "코드작성", 4860, 13, 10),
+            ("기하학습 회귀 실습 노트북 완성", "학업", "복습", 1620, 12, 40), ("캡스톤 Claude 요금제·환불 검토", "프로젝트", "문헌조사", 360, 11, 20),
+            ("자료구조 기초 및 활용 수업 학습", "학업", "강의수강", 60, 10, 5), ("SK AX ERP·Talent AX 직무 지원 준비", "취업 준비", "면접·시험준비", 300, 9, 50),
+            ("현대오토에버 2026년 4분기 신입채용 지원서 작성", "취업 준비", "신청·지원", 240, 9, 10), ("분류 전 업무", nil, "기타", 120, 8, 0),
+        ]
+        return rows.enumerated().map { i, r in
+            TaskSummary(id: Int64(i + 1), key: "t\(i)", title: r.0, taskType: r.2, activeSeconds: r.3, lastActive: todayAt(r.4, r.5), sessionCount: 1, theme: r.1)
+        }
     }
 
     private static func pendingFiles(_ count: Int) -> [FileSuggestion] {
