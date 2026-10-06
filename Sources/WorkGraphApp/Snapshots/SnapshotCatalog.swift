@@ -5,7 +5,7 @@ import WorkGraphCore
 /// 스냅샷으로 그릴 화면 목록. 이름은 Figma 화면 번호를 따른다 (Figma 에서 내보낸 같은 이름의 PNG 와 나란히 본다)
 @MainActor
 enum SnapshotCatalog {
-    static var all: [Snapshot] { menus + windows }
+    static var all: [Snapshot] { menus + windows + activity }
 
     /// Figma 창(760) 에서 제목 줄(44)을 뺀 내용 영역
     static let window = CGSize(width: 1180, height: 716)
@@ -57,6 +57,41 @@ enum SnapshotCatalog {
                 s.fileSuggestions = pendingFiles(2); s.taskList = recentTasks; s.selectedTab = .tasks
             },
         ]
+    }
+
+    /// 활동 로그 정리 기록: 정리 40번이 쌓인 표와 아래에 고정된 LLM 교환 카드 (보낸 내용, 받은 응답, 실패)
+    static var activity: [Snapshot] {
+        [
+            batchShot("LG-W3", ActivityLogView(section: .batches)),
+            batchShot("LG-W4", ActivityLogView(section: .batches, showReceived: true)),
+            batchShot("LG-W7", ActivityLogView(section: .batches), failedFirst: true),
+        ]
+    }
+
+    private static func batchShot(_ name: String, _ view: ActivityLogView, failedFirst: Bool = false) -> Snapshot {
+        let records = sampleBatches(failedFirst: failedFirst)
+        let database = try? WGDatabase.inMemory()
+        try? database?.writer.write { conn in for var record in records { try record.insert(conn) } }
+        let state = AppState(preview: { s in s.phase = .ready; s.batches = records }, database: database)
+        return Snapshot(name: name, size: window, view: AnyView(view.environmentObject(state)))
+    }
+
+    private static func sampleBatches(failedFirst: Bool) -> [BatchRecord] {
+        let stats = #"{"resources":2,"problems":0,"topics":1,"uncoveredRows":0,"laterItems":0,"offTaskRows":0,"tasksCreated":0,"tasksMerged":0,"sessions":1,"sessionsExtended":0,"unassignedRows":0}"#
+        let rows = (1...14).map { i in "\(i) | 14:\(String(format: "%02d", 20 + i))-14:\(String(format: "%02d", 21 + i)) | \(40 + i * 7)s | Chrome | Documentation | Flask 공식 문서 \(i) | https://flask.palletsprojects.com/quickstart/" }
+        let prompt = (["NOW: 2026-09-28 14:35", "TASK_TYPES: 문헌조사, 시장조사, 문서작성, 발표자료, 코드작성, 회의, 메신저대응, 강의수강, 복습, 데이터정리, 기타",
+                       "OPEN_TASKS:", "- id=t12 | Flask 웹앱 개발 | 코드작성 | topics: 로그인 흐름 구현", "ROWS (row | time | dwell | app | type | title | uri) — assign every row:"] + rows)
+            .joined(separator: "\n")
+        let patch = #"{ "rows" : [ { "reason" : "로그인 예제 확인", "resource" : true, "rows" : "1", "task" : "A" } ], "tasks" : [ { "id" : "t12", "match" : "existing", "ref" : "A" } ] }"#
+        let applied = "row | task | resource\n1 | Flask 웹앱 개발 | 로그인 예제 확인\n2 | Flask 웹앱 개발 | 자료 아님 | 내용 없음"
+        return (0..<40).map { k in
+            let id = Int64(212 - k), newest = k == 0, failed = newest && failedFirst
+            return BatchRecord(id: id, startedAt: todayAt(14, 35) - Double(k) * 300, rowCount: 6, status: failed ? "failed" : "ok", model: "gpt-6-luna",
+                               promptTokens: failed ? 0 : 3120, completionTokens: failed ? 0 : 840, error: failed ? "연결 실패: 요청 시간 초과" : nil,
+                               rawResponse: newest && !failed ? #"{"id":"resp_0a91","object":"response","model":"gpt-6-luna","output":[{"type":"function_call","name":"assign_rows"}]}"# : nil,
+                               stats: failed ? nil : stats, systemPrompt: newest ? OntologyPrompt.system : nil, userPrompt: newest ? prompt : nil,
+                               llmPatch: newest && !failed ? patch : nil, appliedPatch: newest && !failed ? applied : nil)
+        }
     }
 
     // MARK: 예시 상태

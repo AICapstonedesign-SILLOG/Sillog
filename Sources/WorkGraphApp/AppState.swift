@@ -115,11 +115,13 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// 개발용 미리보기 (SnapshotCatalog). DB·실행 잠금·수집기를 만들지 않고, configure 가 화면에 필요한 값만 채운다
-    init(preview configure: (AppState) -> Void) {
+    /// 개발용 미리보기 (SnapshotCatalog). DB·실행 잠금·수집기를 만들지 않고, configure 가 화면에 필요한 값만 채운다.
+    /// database: 정리 상세처럼 DB 에서 읽는 화면을 그릴 때 쓰는 메모리 DB
+    init(preview configure: (AppState) -> Void, database: WGDatabase? = nil) {
         settings = AppSettings()
         isPreview = true
         bootstrapped = true
+        if let database { db = database; store = EventStore(database) }
         configure(self)
     }
 

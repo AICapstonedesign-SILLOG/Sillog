@@ -17,6 +17,15 @@ public struct ApplyStats: Codable, Equatable, Sendable {
     public var tasksMerged = 0
 
     public init() {}
+
+    /// 활동 로그 '반영 결과' 줄: 배치에 저장된 JSON 을 "세션 1개, 새 업무 0개, 자료 2개" 로 (세션 = 새로 만든 것 + 이어 붙인 것).
+    /// 예전 배치처럼 키가 빠져 있으면 0, 통계 JSON 이 아니면 nil.
+    public static func summary(json: String) -> String? {
+        guard let data = json.data(using: .utf8), let dict = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              ["sessions", "tasksCreated", "resources"].contains(where: { dict[$0] != nil }) else { return nil }
+        let n = { (key: String) in (dict[key] as? NSNumber)?.intValue ?? 0 }
+        return "세션 \(n("sessions") + n("sessionsExtended"))개, 새 업무 \(n("tasksCreated"))개, 자료 \(n("resources"))개"
+    }
 }
 
 /// LLM 의 행 배정을 그래프에 반영한다.
