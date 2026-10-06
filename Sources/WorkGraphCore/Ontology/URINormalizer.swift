@@ -93,6 +93,28 @@ public enum URINormalizer {
         return "file:" + path
     }
 
+    /// 정규화된 자료 키를 다시 열 수 있는 주소로 되돌린다 (그래프 카드에서 자료 누르기). 파일·웹 주소가 아니면 nil.
+    public static func openableURL(forKey key: String, home: String) -> URL? {
+        if key.hasPrefix("file:") {
+            let path = String(key.dropFirst("file:".count))
+            guard !path.isEmpty else { return nil }
+            return URL(fileURLWithPath: path.hasPrefix("~") ? home + path.dropFirst(1) : path)
+        }
+        if key.hasPrefix("http://") || key.hasPrefix("https://") { return URL(string: key) }
+        if key.hasPrefix("arxiv:") { return URL(string: "https://arxiv.org/abs/" + key.dropFirst("arxiv:".count)) }
+        if key.hasPrefix("doi:") {
+            let doi = String(key.dropFirst("doi:".count))
+            return doi.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed).flatMap { URL(string: "https://doi.org/" + $0) }
+        }
+        if key.hasPrefix("local:") {                                     // local:포트/경로 (443 이면 https)
+            let rest = key.dropFirst("local:".count)
+            guard let slash = rest.firstIndex(of: "/"), let port = Int(rest[..<slash]) else { return nil }
+            let path = rest[slash...]
+            return URL(string: port == 443 ? "https://localhost\(path)" : port == 80 ? "http://localhost\(path)" : "http://localhost:\(port)\(path)")
+        }
+        return nil
+    }
+
     /// "2401.05566", "2401.05566v2", "2401.05566v2.pdf" 에서 arXiv ID를 뽑는다.
     public static func arxivID(inFileName name: String) -> String? {
         firstGroup(#"^([0-9]{4}\.[0-9]{4,5})(v[0-9]+)?(\.pdf)?$"#, in: name)
