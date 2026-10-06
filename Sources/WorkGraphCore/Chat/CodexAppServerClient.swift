@@ -4,7 +4,7 @@ import Foundation
 /// Codex가 검색·응답 루프를 실행하고, 앱의 자료·결과물 도구는 Sillog이 실행한다.
 public struct CodexAppServerClient: Sendable {
     private let auth: any CodexCredentialProviding
-    private let model: String
+    let model: String
 
     /// Args: auth는 앱이 관리하는 로그인, model은 채팅 설정에서 선택한 모델이다.
     /// Returns: Codex App Server 연결.

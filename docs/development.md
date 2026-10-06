@@ -129,10 +129,11 @@ v14의 `app_messages_fts`는 완료된 메시지와 결과물 본문 전체를 �
 - **업무 배정**: `OntologyPrompt.swift`, `AssignmentApplier.swift`, `SessionBuilder.swift`
 - **자료 분류**: `RuleClassifier.swift`, `URINormalizer.swift`
 - **채팅 실행**: `Sources/WorkGraphCore/Chat/ChatRunner.swift`, `ChatTools.swift`
+- **채팅 시스템 프롬프트**: `Sources/WorkGraphCore/Chat/Prompts/chat-system-prompt.md`(원문), `ChatSystemPrompt.swift`(끝의 `{{…}}` 칸 채우기)
 - **스킬**: `Sources/WorkGraphCore/Chat/Skills/catalog.json`과 각 Markdown 지침
 - **대화·예약 상태**: `Sources/WorkGraphApp/Chat/ChatState.swift`
 - **프로젝트 제안·소속**: `Sources/WorkGraphCore/Chat/ProjectOrganizer.swift`, `ProjectStore.swift`, `Sources/WorkGraphApp/Chat/ProjectState.swift`
 - **자료 보관·추출**: `Sources/WorkGraphCore/Chat/LibraryStore.swift`, `FileTextExtractor.swift`, `Sources/WorkGraphApp/Chat/LibraryState.swift`, `Views/LibraryView.swift`
 - **그래프 화면**: `Sources/WorkGraphApp/Resources/graph`
 
-채팅 하위 에이전트는 독립적인 대화와 읽기 도구를 사용하고, 재위임하지 않습니다. 주·하위 작업은 한 요청의 실행 예산을 공유합니다. OpenAI 호환 방식은 모델 호출 최대 24회, Codex 방식은 에이전트 실행 최대 24회와 실행별 앱 도구 호출 최대 32회입니다. 사용자가 중단하면 실행을 취소합니다.
+채팅 하위 에이전트는 독립적인 대화와 읽기 도구를 사용하고, 재위임하지 않습니다. 시스템 프롬프트는 주 에이전트와 같지만 `agent_role`에 역할 이름이 들어가고 스킬·프로젝트·기억 자료 블록은 빠집니다. 주·하위 작업은 한 요청의 실행 예산을 공유합니다. OpenAI 호환 방식은 모델 호출 최대 24회, Codex 방식은 에이전트 실행 최대 24회와 실행별 앱 도구 호출 최대 32회입니다. 사용자가 중단하면 실행을 취소합니다.

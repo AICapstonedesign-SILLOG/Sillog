@@ -245,7 +245,7 @@ final class ChatState: ObservableObject {
                 var succeeded = false
                 do {
                     let project = self.projects.projects.first(where: { $0.id == conversation.projectID })
-                    let result = try await runner.run(history: previous + [user], skillID: conversation.skillID, allowAutomation: automationID == nil, project: project) { [weak self] event in
+                    let result = try await runner.run(history: previous + [user], skillID: conversation.skillID, scheduled: automationID != nil, project: project) { [weak self] event in
                         await self?.receive(event)
                     }
                     try Task.checkCancellation()

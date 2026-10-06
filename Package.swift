@@ -18,7 +18,7 @@ let package = Package(
         .target(
             name: "WorkGraphCore",
             dependencies: [.product(name: "GRDB", package: "GRDB.swift"), .product(name: "LangGraph", package: "LangGraph-Swift")],
-            resources: [.copy("Chat/Skills")]
+            resources: [.copy("Chat/Skills"), .copy("Chat/Prompts")]
         ),
         .target(
             name: "WorkGraphCollectors",
