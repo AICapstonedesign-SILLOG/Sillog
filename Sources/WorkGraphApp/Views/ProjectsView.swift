@@ -27,7 +27,7 @@ struct ProjectAssignmentLabel: View {
     var body: some View {
         if let id = projects.items.first(where: { $0.id == itemID })?.projectID,
            let project = projects.projects.first(where: { $0.id == id }) {
-            Label(project.title, systemImage: "folder").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            Label(project.title, systemImage: "folder").font(Brand.suit(10)).foregroundStyle(Brand.gray).lineLimit(1)
         }
     }
 }
@@ -55,8 +55,8 @@ struct ProjectOverview<Composer: View>: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 HStack(spacing: 14) {
-                    Image(systemName: "folder").font(.system(size: 28, weight: .regular))
-                    Text(project.title).font(.system(size: 26, weight: .medium)).lineLimit(2)
+                    Image(systemName: "folder").font(.system(size: 24, weight: .regular)).foregroundStyle(Brand.ink)
+                    Text(project.title).font(Brand.suit(27, .semibold)).tracking(-1.08).foregroundStyle(Brand.ink).lineLimit(2)
                     Spacer(minLength: 12)
                     Menu {
                         Button("프로젝트 설정") { showSettings = true }.disabled(chat.running)
@@ -64,10 +64,10 @@ struct ProjectOverview<Composer: View>: View {
                         Divider()
                         Button("프로젝트 삭제", role: .destructive) { showDelete = true }.disabled(chat.running)
                     } label: {
-                        Image(systemName: "ellipsis").font(.system(size: 16))
-                            .frame(width: 36, height: 36)
-                            .background(Color.primary.opacity(0.035), in: Circle())
-                            .overlay(Circle().stroke(Color.primary.opacity(0.1)))
+                        Image(systemName: "ellipsis").font(.system(size: 14)).foregroundStyle(Brand.tabText)
+                            .frame(width: 30, height: 30)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(.white))
+                            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Brand.line))
                     }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                         .help("프로젝트 메뉴").accessibilityLabel("프로젝트 메뉴")
                 }
@@ -75,10 +75,10 @@ struct ProjectOverview<Composer: View>: View {
                 HStack(spacing: 8) {
                     ForEach(["채팅", "소스"], id: \.self) { value in
                         Button { tab = value } label: {
-                            Text(value).font(.system(size: 14, weight: tab == value ? .medium : .regular))
-                                .foregroundStyle(tab == value ? Color.primary : Color.secondary)
-                                .padding(.horizontal, 18).padding(.vertical, 10)
-                                .background(tab == value ? Color.primary.opacity(0.06) : .clear, in: Capsule())
+                            Text(value).font(Brand.suit(12, tab == value ? .semibold : .regular))
+                                .foregroundStyle(tab == value ? Brand.ink : Brand.tabText)
+                                .padding(.horizontal, 14).frame(height: 35)
+                                .glassPill(tab == value)
                         }.buttonStyle(.plain).accessibilityAddTraits(tab == value ? .isSelected : [])
                     }
                     Spacer()
@@ -86,24 +86,24 @@ struct ProjectOverview<Composer: View>: View {
                         Menu(newestFirst ? "최신순" : "오래된순") {
                             Button("최신순") { newestFirst = true }
                             Button("오래된순") { newestFirst = false }
-                        }.menuStyle(.borderlessButton).fixedSize()
+                        }.menuStyle(.borderlessButton).fixedSize().font(Brand.suit(11)).foregroundStyle(Brand.gray)
                         Menu(sourceKindTitle) {
                             Button("전체") { sourceKind = "" }
                             Button("업로드") { sourceKind = "upload" }
                             Button("생성한 파일") { sourceKind = "generated" }
                             Button("저장한 답변") { sourceKind = "note" }
                             Button("폴더 연결") { sourceKind = "folder" }
-                        }.menuStyle(.borderlessButton).fixedSize().padding(.leading, 12)
+                        }.menuStyle(.borderlessButton).fixedSize().font(Brand.suit(11)).foregroundStyle(Brand.gray).padding(.leading, 12)
                     }
                 }.padding(.top, 4)
                 if tab == "채팅" { conversationList }
                 else { ProjectSourcesView(library: chat.library, projects: projects, project: project, kind: $sourceKind, newestFirst: $newestFirst) }
-                if let error = projects.error { Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled) }
-                if let error = chat.error { Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled) }
+                if let error = projects.error { Text(error).font(Brand.suit(12)).foregroundStyle(.red).textSelection(.enabled) }
+                if let error = chat.error { Text(error).font(Brand.suit(12)).foregroundStyle(.red).textSelection(.enabled) }
             }.frame(maxWidth: 820, alignment: .leading)
-                .padding(.horizontal, 40).padding(.top, 54).padding(.bottom, 40)
+                .padding(.horizontal, 34).padding(.top, 40).padding(.bottom, 40)
                 .frame(maxWidth: .infinity)
-        }.background(Color(nsColor: .textBackgroundColor))
+        }.background(.white)
         .sheet(isPresented: $showSettings) { ProjectEditor(projects: projects, project: project) { _ in } }
         .alert("프로젝트 이름 바꾸기", isPresented: $showRename) {
             TextField("프로젝트 이름", text: $name)
@@ -130,56 +130,56 @@ struct ProjectOverview<Composer: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             if conversations.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("첫 채팅을 시작해보세요").font(.system(size: 16, weight: .medium))
+                    Text("첫 채팅을 시작해보세요").font(Brand.suit(14, .medium)).foregroundStyle(Brand.ink)
                     Text("위 입력창에서 질문하면 이 프로젝트에 새 채팅이 만들어집니다.")
-                        .font(.system(size: 13)).foregroundStyle(.secondary)
+                        .font(Brand.suit(12)).foregroundStyle(Brand.gray)
                 }.padding(.vertical, 32).padding(.horizontal, 16)
             }
             ForEach(conversations) { conversation in
                 HStack(spacing: 12) {
                     Button { onConversation(conversation) } label: {
                         VStack(alignment: .leading, spacing: 5) {
-                            Text(conversation.title).font(.system(size: 15, weight: .medium)).lineLimit(1)
+                            Text(conversation.title).font(Brand.suit(12, .medium)).foregroundStyle(Brand.tabText).lineLimit(1)
                             let preview = chat.conversationPreviews[conversation.id, default: ""]
                             if !preview.isEmpty {
                                 Text(preview.replacingOccurrences(of: "\n", with: " "))
-                                    .font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
+                                    .font(Brand.suit(11)).foregroundStyle(Brand.gray).lineLimit(1)
                             }
                         }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 17)
                             .contentShape(Rectangle())
                     }.buttonStyle(.plain)
                     Text(Date(timeIntervalSince1970: conversation.updatedAt), format: .dateTime.month().day())
-                        .font(.system(size: 12)).foregroundStyle(.tertiary)
+                        .font(Brand.jost(11)).foregroundStyle(Brand.gray)
                     Menu {
                         ProjectMoveMenu(projects: projects, itemID: "conversation:\(conversation.id)")
                             .disabled(chat.activeMessage?.conversationID == conversation.id)
-                    } label: { Image(systemName: "ellipsis").frame(width: 24, height: 28) }
+                    } label: { Image(systemName: "ellipsis").foregroundStyle(Brand.gray).frame(width: 24, height: 28) }
                         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                         .opacity(hoveredConversation == conversation.id ? 1 : 0)
                         .accessibilityLabel("\(conversation.title) 채팅 메뉴")
                 }.padding(.horizontal, 16)
-                    .background(hoveredConversation == conversation.id ? Color.primary.opacity(0.025) : .clear, in: RoundedRectangle(cornerRadius: 12))
+                    .background(hoveredConversation == conversation.id ? Color(hex: 0xF6F5F4) : .clear, in: RoundedRectangle(cornerRadius: 8))
                     .onHover { hoveredConversation = $0 ? conversation.id : nil }
                     .contextMenu {
                         ProjectMoveMenu(projects: projects, itemID: "conversation:\(conversation.id)")
                             .disabled(chat.activeMessage?.conversationID == conversation.id)
                     }
-                Divider().opacity(0.45).padding(.horizontal, 16)
+                Rectangle().fill(Brand.line).frame(height: 1)
             }
             if !tasks.isEmpty {
                 DisclosureGroup {
                     ForEach(tasks) { item in
                         HStack(spacing: 12) {
-                            Label(item.title, systemImage: "checklist").font(.system(size: 13))
+                            Label(item.title, systemImage: "checklist").font(Brand.suit(12)).foregroundStyle(Brand.tabText)
                             Spacer()
                             if let id = Int64(item.id.dropFirst(5)) {
-                                Button("다시 열기") { state.prepareResume(taskId: id) }.buttonStyle(.plain).font(.system(size: 12))
+                                Button("다시 열기") { state.prepareResume(taskId: id) }.buttonStyle(.plain).font(Brand.suit(11, .medium)).foregroundStyle(Brand.tabText)
                             }
                             Menu { ProjectMoveMenu(projects: projects, itemID: item.id) } label: { Image(systemName: "ellipsis") }
                                 .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                         }.padding(.vertical, 9)
                     }
-                } label: { Text("연결된 업무 \(tasks.count)").font(.system(size: 13)).foregroundStyle(.secondary) }
+                } label: { Text("연결된 업무 \(tasks.count)").font(Brand.suit(12)).foregroundStyle(Brand.gray) }
                     .padding(.horizontal, 16).padding(.top, 28)
             }
         }
@@ -206,92 +206,88 @@ struct ProjectEditor: View {
         _showDetails = State(initialValue: project != nil)
     }
 
+    private var canSave: Bool { !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            HStack {
-                Text(project == nil ? "프로젝트 만들기" : "프로젝트 설정").font(.system(size: 24, weight: .medium))
-                Spacer()
-                Button { dismiss() } label: { Image(systemName: "xmark").font(.system(size: 15)).frame(width: 28, height: 28) }
-                    .buttonStyle(.plain).foregroundStyle(.secondary).accessibilityLabel("닫기")
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            LibrarySheetHeader(eyebrow: "PROJECT", title: project == nil ? "프로젝트 만들기" : "프로젝트 설정") { dismiss() }
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("프로젝트 이름").font(.system(size: 14, weight: .medium))
-                        HStack(spacing: 12) {
-                            Image(systemName: "folder").font(.system(size: 20))
-                            TextField("프로젝트 이름을 입력하세요", text: $title).textFieldStyle(.plain).font(.system(size: 15))
-                        }.padding(14).background(Color.primary.opacity(0.02), in: RoundedRectangle(cornerRadius: 12))
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.12)))
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("프로젝트 이름").font(Brand.suit(12, .medium)).foregroundStyle(Brand.ink)
+                        HStack(spacing: 10) {
+                            Image(systemName: "folder").font(.system(size: 15)).foregroundStyle(Brand.gray)
+                            TextField("프로젝트 이름을 입력하세요", text: $title).textFieldStyle(.plain).font(Brand.suit(12)).foregroundStyle(Brand.text)
+                        }.brandField()
                     }
                     if project == nil {
                         folderSelection
-                        HStack(alignment: .top, spacing: 12) {
-                            Image(systemName: "lightbulb").font(.system(size: 22)).padding(.top, 2)
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "info.circle").font(.system(size: 14)).padding(.top, 1)
                             Text("채팅, 파일, 공통 지침을 한곳에 모아두세요. 프로젝트의 모든 채팅에서 함께 활용할 수 있습니다.")
-                                .font(.system(size: 13)).lineSpacing(3)
-                        }.foregroundStyle(.secondary).padding(16)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+                                .font(Brand.suit(12)).lineSpacing(3)
+                        }.foregroundStyle(Brand.gray)
                         Button { showDetails.toggle() } label: {
                             HStack { Text("목표와 지침 (선택)"); Spacer(); Image(systemName: showDetails ? "chevron.up" : "chevron.down") }
-                                .font(.system(size: 13)).foregroundStyle(.secondary)
+                                .font(Brand.suit(12)).foregroundStyle(Brand.gray)
                         }.buttonStyle(.plain)
                     }
                     if showDetails { details }
-                }.padding(.trailing, 2)
-            }.frame(height: project != nil ? 360 : showDetails ? 440 : 350).scrollIndicators(.hidden)
-            if let error = projects.error { Text(error).foregroundStyle(.red).font(.callout) }
-            HStack {
+                }.padding(.horizontal, 27).padding(.vertical, 24)
+            }.frame(height: project != nil ? 340 : showDetails ? 420 : 330).scrollIndicators(.hidden).background(.white)
+            if let error = projects.error { Text(error).foregroundStyle(.red).font(Brand.suit(12)).padding(.horizontal, 27).padding(.bottom, 8).background(.white) }
+            HStack(spacing: 8) {
                 Button { showMemory.toggle() } label: {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 6) {
                         Text(memoryMode == .allRecords ? "기본 메모리" : "프로젝트 전용 메모리")
-                        Image(systemName: "chevron.down").font(.system(size: 10))
-                    }.font(.system(size: 13, weight: .medium)).padding(.horizontal, 14).padding(.vertical, 12)
-                        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
-                }.buttonStyle(.plain).popover(isPresented: $showMemory) { memoryOptions }
+                        Image(systemName: "chevron.down").font(.system(size: 9))
+                    }
+                }.buttonStyle(BrandButtonStyle()).popover(isPresented: $showMemory) { memoryOptions }
                 Spacer()
                 Button(project == nil ? "프로젝트 만들기" : "저장") { save() }
-                    .buttonStyle(.plain).font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Color(nsColor: .textBackgroundColor)).padding(.horizontal, 20).padding(.vertical, 12)
-                    .background(Color.primary.opacity(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.25 : 0.9), in: Capsule())
-                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-        }.padding(24).frame(width: 540).background(Color(nsColor: .textBackgroundColor))
+                    .buttonStyle(BrandButtonStyle(kind: .primary)).opacity(canSave ? 1 : 0.38).disabled(!canSave)
+            }.padding(.horizontal, 24).frame(height: 63)
+                .background(.white.opacity(0.3)).background(BehindWindowGlass())
+                .overlay(alignment: .top) { Rectangle().fill(Brand.hairline).frame(height: 1) }
+        }.frame(width: 560).background(.white)
     }
 
     private var folderSelection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("소스 폴더").font(.system(size: 14, weight: .medium))
-            VStack(spacing: 12) {
+            Text("소스 폴더").font(Brand.suit(12, .medium)).foregroundStyle(Brand.ink)
+            VStack(spacing: 10) {
                 ForEach(paths, id: \.self) { path in
                     HStack {
                         Label(URL(fileURLWithPath: path).lastPathComponent, systemImage: "folder").lineLimit(1)
                         Spacer()
                         Button { paths.removeAll { $0 == path } } label: { Image(systemName: "xmark").font(.system(size: 11)) }.buttonStyle(.plain)
-                    }.font(.system(size: 13)).help(path)
+                    }.font(Brand.suit(12)).foregroundStyle(Brand.tabText).help(path)
                 }
-                if paths.isEmpty { Text("이 컴퓨터에서 폴더 추가").font(.system(size: 14)).foregroundStyle(.secondary) }
+                if paths.isEmpty { Text("이 컴퓨터에서 폴더 추가").font(Brand.suit(12)).foregroundStyle(Brand.gray) }
                 Button { chooseFolders() } label: {
-                    Label("추가", systemImage: "folder.badge.plus").font(.system(size: 13, weight: .medium))
-                        .padding(.horizontal, 12).padding(.vertical, 7).background(Color.primary.opacity(0.04), in: Capsule())
-                }.buttonStyle(.plain)
-            }.padding(18).frame(maxWidth: .infinity, minHeight: 100)
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.09)))
+                    Label("추가", systemImage: "folder.badge.plus")
+                }.buttonStyle(BrandButtonStyle())
+            }.padding(16).frame(maxWidth: .infinity, minHeight: 100)
+                .background(RoundedRectangle(cornerRadius: 6).fill(.white))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Brand.line))
         }
     }
 
     private var details: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("목표").font(.system(size: 14, weight: .medium))
+            Text("목표").font(Brand.suit(12, .medium)).foregroundStyle(Brand.ink)
             TextField("이 프로젝트에서 이루려는 목표", text: $goal, axis: .vertical)
-                .textFieldStyle(.plain).lineLimit(2...3).padding(12)
-                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
-            Text("공통 지침").font(.system(size: 14, weight: .medium)).padding(.top, 8)
+                .textFieldStyle(.plain).font(Brand.suit(12)).foregroundStyle(Brand.text).lineLimit(2...3).padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 5).fill(.white))
+                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Brand.line))
+            Text("공통 지침").font(Brand.suit(12, .medium)).foregroundStyle(Brand.ink).padding(.top, 8)
             Text("답변 방식이나 작업 규칙을 적어주세요. 모든 프로젝트 채팅에 적용됩니다.")
-                .font(.system(size: 12)).foregroundStyle(.secondary)
-            TextEditor(text: $instructions).font(.system(size: 13)).scrollContentBackground(.hidden)
-                .padding(8).frame(height: 120).background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 10))
+                .font(Brand.suit(10)).foregroundStyle(Brand.gray)
+            TextEditor(text: $instructions).font(Brand.suit(12)).foregroundStyle(Brand.text).scrollContentBackground(.hidden)
+                .padding(6).frame(height: 120)
+                .background(RoundedRectangle(cornerRadius: 5).fill(.white))
+                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Brand.line))
         }
     }
 
@@ -306,8 +302,8 @@ struct ProjectEditor: View {
         Button { memoryMode = mode; showMemory = false } label: {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(title).font(.system(size: 14, weight: .medium))
-                    Text(description).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(title).font(Brand.suit(12, .medium)).foregroundStyle(Brand.ink)
+                    Text(description).font(Brand.suit(10)).foregroundStyle(Brand.gray).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "checkmark").opacity(memoryMode == mode ? 1 : 0)
@@ -337,49 +333,45 @@ struct ProjectProposalsSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack {
-                Text("프로젝트 제안").font(.system(size: 22, weight: .medium))
-                Spacer()
-                Button { dismiss() } label: { Image(systemName: "xmark").frame(width: 28, height: 28) }
-                    .buttonStyle(.plain).foregroundStyle(.secondary).accessibilityLabel("닫기")
-            }
-            Text("관련 있는 업무와 채팅을 함께 묶어 제안합니다. 수락한 항목만 프로젝트에 들어갑니다.")
-                .font(.system(size: 13)).foregroundStyle(.secondary).lineSpacing(3)
-            if let error = projects.error { Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled) }
-            if chat.running { Text("채팅 응답이 끝나면 제안을 수락할 수 있습니다.").font(.callout).foregroundStyle(.secondary) }
-            if projects.proposals.isEmpty {
-                VStack(spacing: 12) {
-                    Image(systemName: projects.checking ? "sparkles" : "folder.badge.plus")
-                        .font(.system(size: 34, weight: .light)).foregroundStyle(.tertiary)
-                    Text(projects.checking ? "함께 묶을 항목을 찾고 있어요" : "새로운 제안이 없어요")
-                        .font(.system(size: 16, weight: .medium))
-                    Text("같은 목표를 다루는 업무와 채팅이 쌓이면 알려드릴게요.")
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
-                }.frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
-                        ForEach(projects.proposals) { proposal in
-                            ProjectProposalCard(projects: projects, proposal: proposal, canAccept: !chat.running)
+        VStack(alignment: .leading, spacing: 0) {
+            LibrarySheetHeader(eyebrow: "PROJECT PROPOSALS", title: "프로젝트 제안",
+                               detail: "관련 있는 업무와 채팅을 함께 묶어 제안합니다. 수락한 항목만 프로젝트에 들어갑니다.") { dismiss() }
+            VStack(alignment: .leading, spacing: 12) {
+                if let error = projects.error { Text(error).font(Brand.suit(12)).foregroundStyle(.red).textSelection(.enabled) }
+                if chat.running { Text("채팅 응답이 끝나면 제안을 수락할 수 있습니다.").font(Brand.suit(12)).foregroundStyle(Brand.gray) }
+                if projects.proposals.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: projects.checking ? "sparkles" : "folder.badge.plus")
+                            .font(.system(size: 28, weight: .light)).foregroundStyle(Brand.sub)
+                        Text(projects.checking ? "함께 묶을 항목을 찾고 있어요" : "새로운 제안이 없어요")
+                            .font(Brand.suit(14, .medium)).foregroundStyle(Brand.ink)
+                        Text("같은 목표를 다루는 업무와 채팅이 쌓이면 알려드릴게요.")
+                            .font(Brand.suit(12)).foregroundStyle(Brand.gray)
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 12) {
+                            ForEach(projects.proposals) { proposal in
+                                ProjectProposalCard(projects: projects, proposal: proposal, canAccept: !chat.running)
+                            }
                         }
                     }
                 }
-            }
-            HStack {
+            }.padding(.horizontal, 27).padding(.vertical, 20).frame(maxWidth: .infinity, maxHeight: .infinity).background(.white)
+            HStack(spacing: 8) {
                 if projects.checking {
                     ProgressView().controlSize(.small)
-                    Text("새 항목 확인 중").font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text("새 항목 확인 중").font(Brand.suit(10)).foregroundStyle(Brand.gray)
                 }
                 Spacer()
                 Button(projects.checking ? "확인 중단" : "새 항목 확인") {
                     if projects.checking { projects.stop() } else { projects.check() }
-                }.buttonStyle(.plain).font(.system(size: 13, weight: .medium))
-                    .padding(.horizontal, 16).padding(.vertical, 10)
-                    .background(Color.primary.opacity(0.06), in: Capsule())
-            }
-        }.padding(24).frame(width: 560, height: projects.proposals.isEmpty ? 360 : 540)
-            .background(Color(nsColor: .textBackgroundColor))
+                }.buttonStyle(BrandButtonStyle())
+            }.padding(.horizontal, 24).frame(height: 63)
+                .background(.white.opacity(0.3)).background(BehindWindowGlass())
+                .overlay(alignment: .top) { Rectangle().fill(Brand.hairline).frame(height: 1) }
+        }.frame(width: 600, height: projects.proposals.isEmpty ? 400 : 560)
+            .background(.white)
     }
 }
 
@@ -395,21 +387,24 @@ private struct ProjectProposalCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             if let projectID = proposal.projectID {
-                Text(projects.projects.first(where: { $0.id == projectID })?.title ?? proposal.title).font(.system(size: 15, weight: .medium))
-            } else { TextField("프로젝트 이름", text: $title).textFieldStyle(.plain).font(.system(size: 15, weight: .medium)) }
-            Text(proposal.goal).font(.system(size: 13)).foregroundStyle(.secondary)
-            Text(proposal.reason).font(.system(size: 12)).foregroundStyle(.secondary)
-            ForEach(proposal.items) { item in Label(item.title, systemImage: item.isTask ? "checklist" : "bubble.left").font(.system(size: 12)) }
+                Text(projects.projects.first(where: { $0.id == projectID })?.title ?? proposal.title).font(Brand.suit(13, .medium)).foregroundStyle(Brand.ink)
+            } else { TextField("프로젝트 이름", text: $title).textFieldStyle(.plain).font(Brand.suit(13, .medium)).foregroundStyle(Brand.ink) }
+            Text(proposal.goal).font(Brand.suit(12)).foregroundStyle(Brand.tabText)
+            Text(proposal.reason).font(Brand.suit(10)).foregroundStyle(Brand.gray)
+            ForEach(proposal.items) { item in
+                Label(item.title, systemImage: item.isTask ? "checklist" : "bubble.left").font(Brand.suit(11)).foregroundStyle(Brand.tabText)
+            }
             HStack {
-                Button("제안 무시") { projects.dismiss(proposal) }.buttonStyle(.plain).foregroundStyle(.secondary)
+                Button("제안 무시") { projects.dismiss(proposal) }.buttonStyle(.plain).foregroundStyle(Brand.gray)
                 Spacer()
                 Button(proposal.projectID == nil ? "프로젝트 만들기" : "프로젝트에 추가") { projects.accept(proposal, title: title) }
-                    .buttonStyle(.plain).padding(.horizontal, 14).padding(.vertical, 9)
-                    .background(Color.primary.opacity(0.07), in: Capsule())
+                    .buttonStyle(BrandButtonStyle(kind: .primary))
                     .disabled(!canAccept || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }.font(.system(size: 12, weight: .medium)).padding(.top, 4)
-        }.padding(18).overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.primary.opacity(0.1)))
+            }.font(Brand.suit(11, .medium)).padding(.top, 4)
+        }.padding(16)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0xF6F5F4)))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Brand.line))
     }
 }

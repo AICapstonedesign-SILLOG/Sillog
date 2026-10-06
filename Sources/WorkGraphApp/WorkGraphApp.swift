@@ -13,9 +13,9 @@ struct WorkGraphApp: App {
         } label: {
             MenuBarLabel(paused: state.status.paused).environmentObject(state)
         }
-        .menuBarExtraStyle(.menu)
+        .menuBarExtraStyle(.window)
 
-        Window("Sillog", id: "main") {
+        Window("SILLOG", id: "main") {
             MainWindow().environmentObject(state)
         }
         .defaultSize(width: 1180, height: 760)
@@ -54,7 +54,7 @@ struct MenuBarLabel: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Image(systemName: paused ? "pause.circle" : "point.3.connected.trianglepath.dotted")
+        Image(systemName: paused ? "pause.fill" : "point.3.connected.trianglepath.dotted")
             .task {
                 WindowOpener.shared.open = { openWindow(id: "main") }
                 await state.bootstrap()

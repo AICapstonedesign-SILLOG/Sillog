@@ -15,8 +15,9 @@ struct ChatInput: NSViewRepresentable {
         let scroll = NSScrollView()
         let editor = ChatTextView()
         editor.isRichText = false; editor.allowsUndo = true
-        editor.font = .systemFont(ofSize: 15)
-        editor.textColor = .labelColor; editor.insertionPointColor = .labelColor
+        editor.font = NSFont(name: "SUIT-Regular", size: 12) ?? .systemFont(ofSize: 12)
+        let ink = NSColor(srgbRed: 20 / 255, green: 18 / 255, blue: 16 / 255, alpha: 1)
+        editor.textColor = ink; editor.insertionPointColor = ink
         editor.drawsBackground = false; editor.textContainerInset = NSSize(width: 0, height: 8)
         editor.isHorizontallyResizable = false; editor.isVerticallyResizable = true
         editor.autoresizingMask = [.width]
