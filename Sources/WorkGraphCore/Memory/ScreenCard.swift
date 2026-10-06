@@ -5,6 +5,8 @@ import GRDB
 public struct ScreenCard: Codable, Equatable, Sendable, FetchableRecord, MutablePersistableRecord, Identifiable {
     public static let databaseTableName = "screen_cards"
     public static let kinds: [String] = ["document", "code", "web", "ai_chat", "message", "video", "tool", "none"]
+    /// 대화 화면: 내용이 보낸 사람과 함께 인용한 메시지들이다 (최근이 마지막)
+    public static let conversationKinds: Set<String> = ["message", "ai_chat"]
 
     public var id: Int64?
     public var tsStart: Double
@@ -17,7 +19,7 @@ public struct ScreenCard: Codable, Equatable, Sendable, FetchableRecord, Mutable
     public var uri: String?
     /// 무엇을 하고 있었나 (한 문장)
     public var activity: String
-    /// 화면 내용 (줄바꿈으로 구분한 2~6줄)
+    /// 화면 내용 (줄바꿈으로 구분. 대화 화면은 최근 메시지 12줄까지, 그 밖은 2~6줄)
     public var content: String
     public var kind: String
     /// 이름 붙은 것들 (JSON): {"documents":[], "people":[], "code":[], "errors":[], "numbers":[], "links":[]}

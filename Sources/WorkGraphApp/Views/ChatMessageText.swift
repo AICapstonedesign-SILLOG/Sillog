@@ -53,26 +53,27 @@ struct ChatMessageText: View {
                                     ChatMarkdownTableView(rows: rows)
                                 } else if value.hasPrefix("#") {
                                     Text(value.replacingOccurrences(of: "^#{1,6} +", with: "", options: .regularExpression))
-                                        .font(.system(size: value.hasPrefix("# ") ? 22 : 17, weight: .semibold))
+                                        .font(Brand.suit(value.hasPrefix("# ") ? 18 : 15, .semibold)).foregroundStyle(Brand.ink)
                                         .padding(.top, 4)
                                 } else if !value.isEmpty {
                                     Text(Self.inlineMarkdown(value))
-                                        .font(.system(size: 15)).lineSpacing(6)
+                                        .font(Brand.suit(13)).foregroundStyle(Brand.tabText).lineSpacing(9)
                                 }
                                 if !cited.isEmpty { ChatCitationButton(sources: cited, onSource: onSource) }
-                                if missing { Text("확인되지 않은 근거").font(.caption).foregroundStyle(.orange) }
+                                if missing { Text("확인되지 않은 근거").font(Brand.suit(10)).foregroundStyle(Brand.gray) }
                             }
                         }
                     }
                 } else {
                     let lines = part.components(separatedBy: "\n")
                     VStack(alignment: .leading, spacing: 10) {
-                        if let language = lines.first, !language.isEmpty { Text(language).font(.caption).foregroundStyle(.secondary) }
+                        if let language = lines.first, !language.isEmpty { Text(language).font(Brand.suit(10)).foregroundStyle(Brand.gray) }
                         ScrollView(.horizontal) {
                             Text(lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .newlines))
-                                .font(.system(size: 13, design: .monospaced))
+                                .font(.system(size: 12, design: .monospaced)).foregroundStyle(Brand.tabText)
                         }
-                    }.padding(14).background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
+                    }.padding(14).background(ChatPalette.soft, in: RoundedRectangle(cornerRadius: 6))
+                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Brand.line))
                 }
             }
         }.textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
@@ -91,18 +92,18 @@ private struct ChatMarkdownTableView: View {
                     HStack(alignment: .top, spacing: 0) {
                         ForEach(rows[row].indices, id: \.self) { column in
                             Text(ChatMessageText.inlineMarkdown(rows[row][column]))
-                                .font(.system(size: 14, weight: row == 0 ? .semibold : .regular))
+                                .font(Brand.suit(12, row == 0 ? .semibold : .regular)).foregroundStyle(row == 0 ? Brand.ink : Brand.tabText)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .frame(width: columnWidth, alignment: .topLeading)
                                 .padding(.horizontal, cellPadding).padding(.vertical, 9)
                         }
                     }
-                    .background(row == 0 ? Color.primary.opacity(0.06) : Color.primary.opacity(row.isMultiple(of: 2) ? 0.025 : 0))
-                    if row < rows.count - 1 { Divider() }
+                    .background(row == 0 ? ChatPalette.soft : .clear)
+                    if row < rows.count - 1 { Rectangle().fill(Brand.line).frame(height: 1) }
                 }
             }
             .frame(width: CGFloat(rows[0].count) * (columnWidth + cellPadding * 2))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.12)))
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Brand.line))
         }
         .defaultScrollAnchor(.leading)
     }
@@ -116,19 +117,20 @@ private struct ChatCitationButton: View {
     var body: some View {
         Button { showingSources = true } label: {
             HStack(spacing: 5) {
-                Image(systemName: "text.book.closed")
+                Image(systemName: "text.book.closed").font(.system(size: 9))
                 Text(sources[0].title).lineLimit(1).frame(maxWidth: 220)
-                if sources.count > 1 { Text("+\(sources.count - 1)") }
+                if sources.count > 1 { Text("+\(sources.count - 1)").font(Brand.jost(9)) }
             }
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 9).padding(.vertical, 5)
-            .background(Color.primary.opacity(0.055), in: Capsule())
+            .font(Brand.suit(9))
+            .foregroundStyle(Brand.tabText)
+            .padding(.horizontal, 7).frame(height: 26)
+            .background(.white, in: RoundedRectangle(cornerRadius: 4))
+            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Brand.line))
         }
         .buttonStyle(.plain)
         .popover(isPresented: $showingSources) {
             VStack(alignment: .leading, spacing: 12) {
-                Text("근거 자료").font(.headline)
+                Eyebrow("EVIDENCE")
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         ForEach(sources) { source in
@@ -137,11 +139,11 @@ private struct ChatCitationButton: View {
                                 onSource(source)
                             } label: {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(source.title).font(.system(size: 13, weight: .medium))
+                                    Text(source.title).font(Brand.suit(12, .medium)).foregroundStyle(Brand.ink)
                                     if !source.location.isEmpty {
-                                        Text(source.location).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                        Text(source.location).font(Brand.suit(10)).foregroundStyle(Brand.gray).lineLimit(1)
                                     }
-                                    Text(source.excerpt).font(.caption).foregroundStyle(.secondary).lineLimit(4)
+                                    Text(source.excerpt).font(Brand.suit(11)).foregroundStyle(Brand.tabText).lineLimit(4)
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                             }.buttonStyle(.plain)
                         }

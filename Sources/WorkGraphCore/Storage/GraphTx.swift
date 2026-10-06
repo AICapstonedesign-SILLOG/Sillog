@@ -168,20 +168,30 @@ public struct GraphTx {
         return try subgraph(ids: ids, includeTBox: includeTBox)
     }
 
-    /// since 이후 갱신된 노드 + 그 시각 이후 엣지의 양 끝점.
+    /// since 이후 갱신된 노드 + 그 시각 이후 엣지의 양 끝점. 보이는 업무의 분야는 언제 이어졌든 함께 넣는다
     public func subgraph(since: Double?, includeTBox: Bool) throws -> Subgraph {
-        let ids: [Int64]
+        var ids: [Int64]
         if let since {
             ids = try Int64.fetchAll(db, sql: """
                 SELECT id FROM nodes WHERE updated_at >= ?
                 UNION SELECT src FROM edges WHERE last_at >= ?
                 UNION SELECT dst FROM edges WHERE last_at >= ?
                 """, arguments: [since, since, since])
+            if !ids.isEmpty {
+                let list = ids.map(String.init).joined(separator: ",")   // 정수만 들어가므로 SQL 주입 위험 없음
+                ids += try Int64.fetchAll(db, sql: """
+                    SELECT e.dst FROM edges e JOIN nodes t ON t.id = e.dst AND t.label = 'Theme'
+                    WHERE e.type = 'PART_OF' AND e.src IN (\(list))
+                    """)
+            }
         } else {
             ids = try Int64.fetchAll(db, sql: "SELECT id FROM nodes")
         }
-        var result = try subgraph(ids: ids, includeTBox: includeTBox)
-        if let since { result.edges.removeAll { $0.lastAt < since } }
+        var result = try subgraph(ids: Array(Set(ids)), includeTBox: includeTBox)
+        if let since {
+            let themes = Set(result.nodes.filter { $0.label == NodeLabel.theme }.map(\.id))
+            result.edges.removeAll { $0.lastAt < since && !($0.type == EdgeType.partOf && themes.contains($0.dst)) }
+        }
         return result
     }
 

@@ -35,10 +35,17 @@ public enum GraphJSONExporter {
             degree[edge.src, default: 0] += 1
             degree[edge.dst, default: 0] += 1
         }
+        // 분야는 거기 속한 업무 중 가장 최근 것만큼 최근으로 보낸다. 그래프 뷰가 노드의 updatedAt 으로 오늘·7일을 거르므로
+        let updated = Dictionary(graph.nodes.map { ($0.id, $0.updatedAt) }, uniquingKeysWith: { first, _ in first })
+        let themes = Set(graph.nodes.filter { $0.label == NodeLabel.theme }.map(\.id))
+        var themeRecency: [Int64: Double] = [:]
+        for edge in graph.edges where edge.type == EdgeType.partOf && themes.contains(edge.dst) {
+            themeRecency[edge.dst] = max(themeRecency[edge.dst] ?? 0, updated[edge.src] ?? 0)
+        }
         let dto = GraphDTO(
             generatedAt: now,
             nodes: graph.nodes.map { NodeDTO(id: $0.id, label: $0.label, subtype: $0.subtype, title: $0.title, key: $0.key,
-                                             props: $0.props, degree: degree[$0.id] ?? 0, updatedAt: $0.updatedAt) },
+                                             props: $0.props, degree: degree[$0.id] ?? 0, updatedAt: max($0.updatedAt, themeRecency[$0.id] ?? 0)) },
             links: graph.edges.map { LinkDTO(source: $0.src, target: $0.dst, type: $0.type, weight: $0.weight, hits: $0.hits,
                                              props: $0.props, lastAt: $0.lastAt) })
         let encoder = JSONEncoder()

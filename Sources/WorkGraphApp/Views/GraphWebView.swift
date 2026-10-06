@@ -62,15 +62,15 @@ struct GraphWebView: NSViewRepresentable {
                 Task { @MainActor in self.state.prepareResume(label: label, key: key) }
             case "runBatch":
                 Task { @MainActor in await self.state.runBatch(force: true) }
-            case "open":
-                guard let uri = body["uri"] as? String else { return }
-                if uri.hasPrefix("file:") {
-                    var path = String(uri.dropFirst("file:".count))
-                    if path.hasPrefix("~") { path = NSHomeDirectory() + path.dropFirst(1) }
-                    NSWorkspace.shared.open(URL(fileURLWithPath: path))
-                } else if let url = URL(string: uri), ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
-                    NSWorkspace.shared.open(url)
-                }
+            case "open":                                                    // 카드에서 자료 누르기: 자료 키(file:·웹 주소·arxiv:·doi:·local:)
+                guard let uri = body["uri"] as? String, let url = URINormalizer.openableURL(forKey: uri, home: NSHomeDirectory()) else { return }
+                if !NSWorkspace.shared.open(url) { AppLog.write("열기 실패: \(uri)") }
+            case "openApp":                                                 // 카드에서 앱 누르기: 번들 id
+                guard let bundle = body["bundle"] as? String, bundle != "excluded" else { return }
+                guard let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) else { AppLog.write("앱을 찾지 못함: \(bundle)"); return }
+                let configuration = NSWorkspace.OpenConfiguration()
+                configuration.activates = true
+                NSWorkspace.shared.openApplication(at: app, configuration: configuration)
             default:
                 break
             }

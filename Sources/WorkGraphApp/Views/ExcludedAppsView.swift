@@ -32,36 +32,52 @@ struct ExcludedAppsView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(entries) { entry in
-                HStack(spacing: 8) {
-                    if let icon = entry.icon {
-                        Image(nsImage: icon).resizable().frame(width: 18, height: 18)
-                    } else {
-                        Image(systemName: "app.dashed").frame(width: 18, height: 18).foregroundStyle(.secondary)
-                    }
-                    Text(entry.name)
-                    Text(entry.id).font(.callout).foregroundStyle(.tertiary).lineLimit(1)
-                    Spacer()
-                    Button("제거") { remove(entry.id) }.buttonStyle(.link)
-                }
-            }
-            if entries.isEmpty { Text("없음").foregroundStyle(.secondary) }
-            HStack {
-                Menu("실행 중인 앱에서 추가") {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Text("기록하지 않을 앱").font(Brand.suit(14)).foregroundStyle(Brand.ink)
+                Spacer()
+                Menu {
                     if runningCandidates.isEmpty { Text("추가할 앱 없음") }
                     ForEach(runningCandidates, id: \.bundle) { candidate in
                         Button(candidate.name) { add(candidate.bundle) }
                     }
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("실행 중인 앱에서 추가")
+                        Image(systemName: "chevron.down").font(.system(size: 9, weight: .medium))
+                    }
                 }
-                .fixedSize()
-                Button("앱 파일 선택…") { pickApp() }
-                Spacer()
-                Button("기본값으로") { state.settings.excludedBundles = PrivacyFilter.defaultExcludedBundles.sorted() }
-                    .buttonStyle(.link)
+                .menuStyle(.button).buttonStyle(BrandButtonStyle()).menuIndicator(.hidden).fixedSize()
+                Button("앱 파일 선택…") { pickApp() }.buttonStyle(BrandButtonStyle())
             }
-            .padding(.top, 4)
+            .padding(.top, 14).padding(.bottom, 8)
+            Text("제외한 앱은 이름과 시간만 남고 창 제목, 주소, 화면 텍스트, 스크린샷은 기록되지 않아요.")
+                .font(Brand.suit(11)).foregroundStyle(Brand.gray).padding(.bottom, 12)
+            VStack(spacing: 8) {
+                ForEach(entries) { entry in
+                    HStack(spacing: 10) {
+                        if let icon = entry.icon {
+                            Image(nsImage: icon).resizable().frame(width: 18, height: 18)
+                        } else {
+                            Image(systemName: "app.dashed").frame(width: 18, height: 18).foregroundStyle(Brand.gray)
+                        }
+                        Text(entry.name).font(Brand.suit(12)).foregroundStyle(Brand.text)
+                        Text(entry.id).font(Brand.suit(10)).foregroundStyle(Brand.sub).lineLimit(1)
+                        Spacer()
+                        Button("제거") { remove(entry.id) }
+                            .buttonStyle(.plain).font(Brand.suit(10, .medium)).foregroundStyle(Brand.gray)
+                    }
+                    .padding(.horizontal, 12).frame(height: 42)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(.white))
+                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Brand.line))
+                }
+            }
+            if entries.isEmpty { Text("없음").font(Brand.suit(12)).foregroundStyle(Brand.gray) }
+            Button("기본값으로 되돌리기") { state.settings.excludedBundles = PrivacyFilter.defaultExcludedBundles.sorted() }
+                .buttonStyle(.plain).font(Brand.suit(11)).foregroundStyle(Brand.tabText)
+                .padding(.top, 14).padding(.bottom, 20)
         }
+        .overlay(alignment: .bottom) { Rectangle().fill(Brand.line).frame(height: 1) }
     }
 
     private func add(_ bundle: String) {

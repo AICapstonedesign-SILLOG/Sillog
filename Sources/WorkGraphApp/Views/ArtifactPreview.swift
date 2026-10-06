@@ -10,19 +10,19 @@ struct ArtifactPreview: View {
     @State private var error: String?
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(artifact.title).font(.headline).lineLimit(1)
-                Spacer()
-                Button("파일 저장") { save(pdf: false) }
-                Button("PDF 저장") { save(pdf: true) }.disabled(!preview.loaded)
-                Button("닫기") { dismiss() }
-            }.padding(16)
-            Divider()
-            ArtifactWebView(state: preview)
-            if let error { Text(error).font(.callout).foregroundStyle(.red).padding(12) }
+        ChatDialogFrame(eyebrow: "ARTIFACT PREVIEW", title: artifact.title, width: 760, height: 679, onClose: { dismiss() }) {
+            VStack(spacing: 0) {
+                ArtifactWebView(state: preview)
+                if let error { Text(error).font(Brand.suit(12)).foregroundStyle(Brand.ink).padding(12) }
+            }
+        } footer: {
+            Text(artifact.format.uppercased()).font(Brand.suit(10)).foregroundStyle(Brand.gray)
+            Spacer()
+            Button { save(pdf: false) } label: {
+                HStack(spacing: 8) { Image(systemName: "arrow.down.to.line").font(.system(size: 11)); Text("파일로 저장") }
+            }.buttonStyle(ChatDialogButtonStyle())
+            Button("PDF로 내보내기") { save(pdf: true) }.buttonStyle(ChatDialogButtonStyle(primary: true)).disabled(!preview.loaded)
         }
-        .frame(width: 820, height: 650)
         .onAppear { preview.webView.loadHTMLString(ChatArtifactHTML.render(artifact), baseURL: nil) }
     }
 

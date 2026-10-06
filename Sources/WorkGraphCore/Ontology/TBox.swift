@@ -7,10 +7,14 @@ public enum TBox {
         ("정보수집", nil), ("문헌조사", "정보수집"), ("시장조사", "정보수집"),
         ("산출물작성", nil), ("문서작성", "산출물작성"), ("발표자료", "산출물작성"), ("코드작성", "산출물작성"),
         ("커뮤니케이션", nil), ("회의", "커뮤니케이션"), ("메신저대응", "커뮤니케이션"),
-        ("학습", nil), ("강의수강", "학습"), ("복습", "학습"),
+        ("학습", nil), ("강의수강", "학습"), ("복습", "학습"), ("면접·시험준비", "학습"),
         ("반복작업", nil), ("데이터정리", "반복작업"),
+        ("행정처리", nil), ("신청·지원", "행정처리"), ("일정·공지확인", "행정처리"),
         ("기타", nil),
     ]
+
+    /// 업무 종류 목록의 판. 목록을 바꾸면 올린다. 업무를 만들 때 props.type_version 에 남기고, 옛 판 업무는 테마 단계가 종류를 다시 붙인다
+    public static let version = 2
 
     public static let resourceTypes: [(name: String, parent: String?)] = [
         ("참고자료", nil), ("Documentation", "참고자료"), ("QnA", "참고자료"), ("Paper", "참고자료"),
@@ -25,6 +29,13 @@ public enum TBox {
     public static var leafTaskTypes: [String] {
         let parents = Set(taskTypes.compactMap(\.parent))
         return taskTypes.map(\.name).filter { !parents.contains($0) }
+    }
+
+    /// 고를 수 있는 종류 이름으로 맞춘다 (공백·가운뎃점 차이는 무시). 없으면 nil
+    public static func leafType(_ name: String) -> String? {
+        func key(_ text: String) -> String { text.filter { !$0.isWhitespace && $0 != "·" } }
+        let wanted = key(name)
+        return leafTaskTypes.first { key($0) == wanted }
     }
 
     public static func seed(_ tx: GraphTx, at: Double) throws {

@@ -196,4 +196,10 @@ final class CodexAuthTests: XCTestCase {
         XCTAssertEqual(after, .loggedOut)
         XCTAssertNil(store.load())
     }
+
+    func testDeviceLoginDisabledMessageMatchesLoginErrorScreen() {
+        // Figma OUT-W1 의 오류 상자 문구
+        XCTAssertEqual(CodexAuthError.deviceLoginNotEnabled.description,
+                       "이 계정은 기기 코드 로그인이 꺼져 있어요. ChatGPT 설정의 보안 항목에서 켜 주세요.")
+    }
 }

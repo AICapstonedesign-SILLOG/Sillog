@@ -43,6 +43,14 @@ final class AppState: ObservableObject {
     @Published var resumeRequest: ResumeRequest?
     @Published var bootstrapped = false
     @Published var chat: ChatState?
+    /// 온보딩 시트가 보여 줄 단계. nil 이면 시트가 없다 (OnboardingFlow 가 정한다)
+    @Published var onboardingStep: OnboardingStep?
+    /// 기기 코드 로그인이 꺼진 계정이라 로그인을 시작하지 못했다. 창이 OUT-W1 카드를 보여 준다
+    @Published var loginBlocked = false
+    /// 온보딩 권한 단계가 1초마다 직접 읽는 권한 (이때는 수집기가 아직 돌지 않는다)
+    @Published var permissionGrants = PermissionGrants(accessibility: false, screenRecording: false)
+    /// 이번 실행에서 화면 기록 권한을 요청했다. 허용해도 다시 실행해야 적용된다 (OUT-05)
+    @Published var askedScreenRecording = false
 
     let databasePath = WGDatabase.defaultPath()
     private(set) var db: WGDatabase?
@@ -61,13 +69,18 @@ final class AppState: ObservableObject {
     private var codexModelTaskID: UUID?
     private var servicesRunning = false
     private var bootstrapLogged = false
+    /// 스냅샷용 미리보기 상태. DB·잠금·수집기·권한 읽기를 하지 않는다
+    private var isPreview = false
     private let instanceLock = InstanceLock(databasePath: WGDatabase.defaultPath())
     private static let onboardingKey = "workgraph.onboardingCompleted"
+    /// Figma OUT-W3 문구
+    static let alreadyRunningMessage = "Sillog이 이미 실행 중이에요. 메뉴 막대의 아이콘을 확인해 주세요."
 
     init() {
         settings = AppSettings.load()
         guard instanceLock.acquire() else {
-            startupError = "Sillog이 이미 실행 중입니다. 메뉴바의 아이콘을 확인하세요. 터미널에서 swift run 으로 띄운 것이 있다면 그쪽을 먼저 끄세요."
+            startupError = Self.alreadyRunningMessage
+            AppLog.write("이미 실행 중인 Sillog 이 있어 시작하지 않음 (터미널에서 swift run 으로 띄운 실행도 확인)")
             return
         }
         do {
@@ -81,10 +94,19 @@ final class AppState: ObservableObject {
             self.coordinator = coordinator
             self.chat = ChatState(db: database, makeClient: { [unowned self] in self.makeChatClient() },
                                   makeProjectClient: { [unowned self] in self.makeClient() })
-            let batcher = OntologyBatcher(db: database, llm: makeClient())
+            var batchConfig = BatchConfig()
+            // 숨은 설정: defaults write com.capstone.workgraph batchPipeline single (없으면 기본값인 3단계)
+            batchConfig.pipeline = BatchPipeline(rawValue: UserDefaults.standard.string(forKey: "batchPipeline") ?? "") ?? batchConfig.pipeline
+            // 숨은 설정: defaults write com.capstone.workgraph themes -bool true (없으면 분야 붙이기는 꺼짐)
+            batchConfig.themes = UserDefaults.standard.bool(forKey: "themes")
+            let batcher = OntologyBatcher(db: database, llm: makeClient(), config: batchConfig)
             self.batcher = batcher
             let cardsOn = settings.screenCards && settings.captureScreenshots
             Task { await batcher.setScreenCards(cardsOn) }
+            // 앱을 시작할 때 분야가 없거나 종류가 옛 판인 업무를 정리한다 (처음 한 번은 기존 업무 전부). 붙였으면 그래프를 새로 그린다
+            Task { [weak self] in
+                if await batcher.assignThemes() != nil { self?.graphVersion += 1 }
+            }
             self.suggester = FolderSuggester(db: database, llm: makeQuickClient())
             notifier.onAction = { [weak self] action, id in Task { @MainActor in self?.handleNotificationAction(action, id: id) } }
             notifier.onDenied = { [weak self] denied in Task { @MainActor in self?.notificationsDenied = denied } }
@@ -93,11 +115,21 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// 개발용 미리보기 (SnapshotCatalog). DB·실행 잠금·수집기를 만들지 않고, configure 가 화면에 필요한 값만 채운다.
+    /// database: 정리 상세처럼 DB 에서 읽는 화면을 그릴 때 쓰는 메모리 DB
+    init(preview configure: (AppState) -> Void, database: WGDatabase? = nil) {
+        settings = AppSettings()
+        isPreview = true
+        bootstrapped = true
+        if let database { db = database; store = EventStore(database) }
+        configure(self)
+    }
+
     // MARK: 단계 (온보딩 → 사용)
 
     /// 앱이 뜰 때 한 번: 로그인 상태를 읽어 단계를 정하고, 쓸 수 있는 상태면 서비스를 켠다.
     func bootstrap() async {
-        guard !bootstrapped else { return }
+        guard !bootstrapped, !isPreview else { return }
         codexStatus = await codexAuth.status()
         bootstrapped = true
         updatePhase()
@@ -108,6 +140,7 @@ final class AppState: ObservableObject {
         let previous = phase
         phase = AppPhase.decide(loggedIn: codexStatus != .loggedOut,
                                 onboardingCompleted: UserDefaults.standard.bool(forKey: Self.onboardingKey))
+        onboardingStep = OnboardingFlow.step(after: onboardingStep, phase: phase)
         if previous != phase || !bootstrapLogged {
             bootstrapLogged = true
             AppLog.write("단계: \(phase) (손쉬운 사용 \(Permissions.accessibility(prompt: false) ? "허용" : "없음"), 화면 기록 \(Permissions.screenRecording() ? "허용" : "없음"))")
@@ -123,6 +156,24 @@ final class AppState: ObservableObject {
             await loadCodexModels()
             await runBatch(force: false)                    // 로그인 전에 쌓여 있던 활동이 있으면 바로 정리
         }
+    }
+
+    /// 온보딩 1단계의 "로그인 완료, 다음"
+    func advanceOnboarding() {
+        guard let step = onboardingStep else { return }
+        onboardingStep = OnboardingFlow.advance(from: step, phase: phase)
+    }
+
+    /// 온보딩 시트의 닫기(×). 창은 화면 쪽이 닫는다
+    func closeOnboarding() {
+        onboardingStep = OnboardingFlow.close(onboardingStep, phase: phase)
+    }
+
+    /// 온보딩 권한 단계가 1초마다 부른다. 값이 같으면 화면을 건드리지 않는다
+    func refreshPermissionGrants() {
+        guard !isPreview else { return }
+        let now = PermissionGrants(accessibility: Permissions.accessibility(prompt: false), screenRecording: Permissions.screenRecording())
+        if now != permissionGrants { permissionGrants = now }
     }
 
     private func startServices() {
@@ -145,6 +196,9 @@ final class AppState: ObservableObject {
 
     /// 화면 기록 권한은 허용한 뒤 앱을 다시 켜야 적용된다.
     func relaunch() {
+        // 새 실행이 잠금을 먼저 잡으려 하므로 미리 놓는다. 놓지 않으면 새 실행이 '이미 실행 중'(W3)으로 막힌다.
+        // 다시 실행은 온보딩(수집기가 돌기 전)에서만 쓴다
+        instanceLock.release()
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.createsNewApplicationInstance = true
         NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { _, _ in
@@ -347,6 +401,7 @@ final class AppState: ObservableObject {
         guard loginTask == nil else { return }
         cancelCodexModelLoading(clear: true)
         codexMessage = nil
+        loginBlocked = false
         loginTask = Task { [weak self] in
             guard let self else { return }
             defer { self.loginTask = nil; self.deviceCode = nil }
@@ -362,6 +417,7 @@ final class AppState: ObservableObject {
                 if self.phase == .ready { await self.runBatch(force: false) }   // 밀려 있던 활동을 바로 정리
             } catch let error as CodexAuthError {
                 self.codexMessage = error == .cancelled ? nil : error.description
+                self.loginBlocked = error == .deviceLoginNotEnabled
             } catch is CancellationError {
                 self.codexMessage = nil
             } catch {
@@ -403,7 +459,7 @@ final class AppState: ObservableObject {
             case .ok(let stats):
                 applied = true
                 AppLog.write("정리 성공: 세션 \(stats.sessions + stats.sessionsExtended), 새 업무 \(stats.tasksCreated), 자료 \(stats.resources)")
-                lastBatchText = "\(Self.clock.string(from: Date())) 정리 완료 (업무 \(stats.tasksCreated)개 새로, 자료 \(stats.resources)개)"
+                lastBatchText = MenuBarModel.batchSummary(clock: Self.clock.string(from: Date()), newTasks: stats.tasksCreated, resources: stats.resources)
                 continue
             case .failed(let message):
                 AppLog.write("정리 실패: \(message.prefix(200))")

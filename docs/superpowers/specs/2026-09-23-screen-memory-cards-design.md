@@ -46,7 +46,7 @@
 
 ## 2. 카드
 
-필드: 시작·끝 시각, 해시, 스크린샷 경로, 앱, 창 제목, 주소·파일, 무엇을 했나(한 문장), 화면 내용(2~6줄), 화면 종류(document / code / web / ai_chat / message / video / tool / none), 이름 붙은 것들(`entities` JSON: documents, people, code, errors, numbers, links).
+필드: 시작·끝 시각, 해시, 스크린샷 경로, 앱, 창 제목, 주소·파일, 무엇을 했나(한 문장. 대화 화면은 상대와 앱만, 단어는 해석하지 않음), 화면 내용(2~6줄, 대화는 최근 메시지 12줄까지 원문 인용), 화면 종류(document / code / web / ai_chat / message / video / tool / none), 이름 붙은 것들(`entities` JSON: documents, people, code, errors, numbers, links).
 
 저장
 - `screen_cards` 표. 원시 행에 `card_id`.
@@ -56,6 +56,7 @@
 ## 3. 업무 배정이 카드를 쓰는 방식
 
 - 행에 카드가 있으면 프롬프트에 `screen: 무엇을 했나 / 내용 줄` 을 붙이고 `text:` 는 뺀다. 같은 카드가 여러 행에 걸치면 처음 한 번만 전문, 이후는 `screen: (위 카드 #n 과 같음)`.
+- 첫 줄은 카드 모델의 해석이고 근거는 인용 줄이다 (2026-10-02). 대화 카드는 최근 메시지 뒤에서 12줄, 그 밖은 앞에서 6줄.
 - 카드가 없는 행은 지금처럼 `text:`.
 - 판정 규칙(목표 / 이탈 / 없음, 자료 여부, reason)은 그대로.
 

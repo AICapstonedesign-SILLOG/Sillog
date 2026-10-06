@@ -17,9 +17,16 @@ public struct BatchConfig: Sendable {
     public var screenCards: Bool = true
     /// 같은 화면의 카드를 다시 쓰는 기간 (초)
     public var cardReuseWindow: Double = 24 * 3600
+    /// 판정 방식: 3단계(업무 여부 → 업무 대입 → 클래스 부여, 기본) 또는 한 번 호출
+    public var pipeline: BatchPipeline = .staged
+    /// 테마 단계(분야·종류 붙이기): 정리에서 새 업무가 생기면 업무 합치기 뒤에, 그리고 앱을 시작할 때 돈다.
+    /// 분야 측정이 기준 미달이고 분야를 옮길 화면이 아직 없어, 사용자가 켤 때까지 꺼 둔다
+    public var themes: Bool = false
 
     public init() {}
 }
+
+public enum BatchPipeline: String, Sendable { case single, staged }
 
 public enum BatchOutcome: Equatable, Sendable {
     case skipped(String)
@@ -84,6 +91,8 @@ public actor OntologyBatcher {
             windowEnd = last.ts
         }
         guard let first = window.first, let last = window.last else { return .skipped("미처리 행 없음") }
+        // 마지막 행의 체류는 바로 다음 관측까지 (다시 판정할 때는 다음 관측이 이미 처리돼 있다)
+        if let next = try store.nextObservationTs(after: last) { windowEnd = min(windowEnd, next) }
 
         let idle = try store.idleSpans(from: first.ts, to: windowEnd)
         let texts = try store.texts(ids: window.compactMap(\.textId))
@@ -103,26 +112,23 @@ public actor OntologyBatcher {
         if config.screenCards, let vision = llm as? any VisionLLMClient {
             cards = await makeCards(rows: rows, window: window, llm: vision, now: now)
         }
-        let prompt = OntologyPrompt.build(rows: rows, openTasks: openTasks, now: now, cards: cards)
         let model = llm.modelName
-
-        let result: LLMResult
+        let judgment: Judgment
         do {
-            result = try await llm.callFunction(system: prompt.system, user: prompt.user, tool: AssignmentSchema.tool)
+            judgment = try await judge(rows: rows, openTasks: openTasks, cards: cards, now: now)
         } catch {
             // 서버가 죽었거나 토큰이 만료된 경우: 데이터는 그대로 두고 기다린다. 건너뛰지 않는다.
             let message = (error as? LLMError)?.description ?? "\(error)"
-            try recordFailure(message: message, model: model, first: first, last: last, rowCount: rows.count, raw: nil, now: now, prompt: prompt)
+            let sent = config.pipeline == .single ? OntologyPrompt.build(rows: rows, openTasks: openTasks, now: now, cards: cards) : nil
+            try recordFailure(message: message, model: model, first: first, last: last, rowCount: rows.count, raw: nil, now: now, prompt: sent)
             scheduleBackoff(now: now)
             return .failed(message)
         }
 
-        let patch = AssignmentPatch.decodeLenient(from: result.arguments)
-        guard let patch, !patch.rows.isEmpty else {
-            let message = "LLM 응답에 행 배정이 없음"
-            try recordFailure(message: message,
-                              model: result.model, first: first, last: last, rowCount: rows.count, raw: result.raw, now: now,
-                              tokens: (result.promptTokens, result.completionTokens), prompt: prompt)
+        guard let patch = judgment.patch, !patch.rows.isEmpty else {
+            let message = judgment.failure ?? "LLM 응답에 행 배정이 없음"
+            try recordFailure(message: message, model: judgment.model, first: first, last: last, rowCount: rows.count, raw: judgment.raw, now: now,
+                              tokens: (judgment.promptTokens, judgment.completionTokens), prompt: judgment.prompt)
             scheduleBackoff(now: now)
             return .failed(message)
         }
@@ -134,11 +140,11 @@ public actor OntologyBatcher {
                 let tx = GraphTx(conn)
                 let (stats, assignments) = try AssignmentApplier().apply(patch, rows: rows, tx: tx, now: now, requireComplete: true)
                 var record = BatchRecord(startedAt: now, finishedAt: Date().timeIntervalSince1970, fromObs: first.id, toObs: last.id,
-                                         rowCount: rows.count, status: "ok", model: result.model,
-                                         promptTokens: result.promptTokens, completionTokens: result.completionTokens,
-                                         rawResponse: String(result.raw.prefix(20_000)),
+                                         rowCount: rows.count, status: "ok", model: judgment.model,
+                                         promptTokens: judgment.promptTokens, completionTokens: judgment.completionTokens,
+                                         rawResponse: String(judgment.raw.prefix(20_000)),
                                          stats: (try? JSONEncoder().encode(stats)).flatMap { String(data: $0, encoding: .utf8) },
-                                         systemPrompt: prompt.system, userPrompt: prompt.user,
+                                         systemPrompt: judgment.prompt.system, userPrompt: judgment.prompt.user,
                                          llmPatch: patch.prettyJSON, appliedPatch: Self.describe(assignments, tx: tx))
                 try record.insert(conn)
                 let batchId = record.id ?? conn.lastInsertedRowID
@@ -152,8 +158,8 @@ public actor OntologyBatcher {
             }
         } catch {
             let message = "행 배정 반영 실패: \(error)"
-            try recordFailure(message: message, model: result.model, first: first, last: last, rowCount: rows.count,
-                              raw: result.raw, now: now, tokens: (result.promptTokens, result.completionTokens), prompt: prompt)
+            try recordFailure(message: message, model: judgment.model, first: first, last: last, rowCount: rows.count,
+                              raw: judgment.raw, now: now, tokens: (judgment.promptTokens, judgment.completionTokens), prompt: judgment.prompt)
             scheduleBackoff(now: now)
             return .failed(message)
         }
@@ -161,10 +167,88 @@ public actor OntologyBatcher {
         // 새 업무가 생겼으면 제목만 다른 같은 목표가 아닌지 LLM 에 묻는다 (합치기)
         if stats.tasksCreated > 0 {
             var merged = stats
-            if let outcome = try? await TaskMerger.run(db: db, llm: llm, since: now - 7 * 86_400, now: now) { merged.tasksMerged = outcome.merged }
+            if let outcome = try? await TaskMerger.run(db: db, llm: llm, since: now - 7 * 86_400, now: now) {
+                merged.tasksMerged = outcome.merged
+                if outcome.retired > 0 { AppLog.write("목표가 아닌 업무 \(outcome.retired)개를 업무 외로 돌림") }
+            }
+            if config.themes { await assignThemes(now: now) }
             return .ok(merged)
         }
         return .ok(stats)
+    }
+
+    /// 판정 한 번의 결과와 기록용 원문. 한 번 호출이든 3단계든 같은 모양
+    struct Judgment {
+        var patch: AssignmentPatch?
+        var failure: String?
+        var model: String
+        var promptTokens: Int
+        var completionTokens: Int
+        var raw: String
+        var prompt: (system: String, user: String)
+
+        init(single result: LLMResult, prompt: (system: String, user: String)) {
+            patch = AssignmentPatch.decodeLenient(from: result.arguments)
+            failure = nil
+            model = result.model; promptTokens = result.promptTokens; completionTokens = result.completionTokens
+            raw = result.raw; self.prompt = prompt
+        }
+
+        init(patch: AssignmentPatch?, calls: [StageCall], failure: String?, fallbackModel: String) {
+            self.patch = patch; self.failure = failure
+            model = calls.last?.model ?? fallbackModel
+            promptTokens = calls.reduce(0) { $0 + $1.promptTokens }
+            completionTokens = calls.reduce(0) { $0 + $1.completionTokens }
+            raw = Self.stageRaw(calls)
+            prompt = (calls.map { "[\($0.stage)]\n\($0.system)" }.joined(separator: "\n\n"),
+                      calls.map { "[\($0.stage)]\n\($0.user)" }.joined(separator: "\n\n"))
+        }
+
+        /// 단계별 함수 인자를 JSON 배열로. 기록 한도를 넘으면 단계마다 같은 몫으로 잘라 JSON 이 깨지지 않게 한다
+        static func stageRaw(_ calls: [StageCall], limit: Int = 20_000) -> String {
+            func encode(_ cap: Int) -> String {
+                let items = calls.map { ["stage": $0.stage, "arguments": String($0.arguments.prefix(cap))] }
+                return (try? JSONSerialization.data(withJSONObject: items, options: [.withoutEscapingSlashes]))
+                    .flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            }
+            let full = encode(Int.max)
+            guard full.count > limit, !calls.isEmpty else { return full }
+            // 따옴표 이스케이프로 길이가 최대 두 배가 되므로 몫의 절반만 남긴다
+            return encode(max(0, (limit - 100 * calls.count) / (2 * calls.count)))
+        }
+    }
+
+    /// 테마 단계: 분야가 없거나 종류가 옛 판인 업무에 분야·종류를 붙인다. 실패해도 정리에는 영향이 없다 (로그만 남긴다)
+    @discardableResult
+    public func assignThemes(now: Double? = nil) async -> ThemeStep.Outcome? {
+        guard config.themes else { return nil }
+        do {
+            guard let outcome = try await ThemeStep.run(db: db, llm: llm, now: now ?? clock()) else { return nil }
+            var message = "분야: 업무 \(outcome.themed)개에 붙임, 종류 \(outcome.retyped)개 다시 붙임"
+            if !outcome.created.isEmpty { message += ", 새 분야 \(outcome.created.joined(separator: ", "))" }
+            if outcome.skipped > 0 { message += ", 다음에 다시 \(outcome.skipped)개" }
+            AppLog.write(message)
+            return outcome
+        } catch {
+            AppLog.write("분야 붙이기 실패: \((error as? LLMError)?.description ?? "\(error)")")
+            return nil
+        }
+    }
+
+    private func judge(rows: [ActivityRow], openTasks: [TaskDigest], cards: [Int: [ScreenCard]], now: Double) async throws -> Judgment {
+        switch config.pipeline {
+        case .single:
+            let prompt = OntologyPrompt.build(rows: rows, openTasks: openTasks, now: now, cards: cards)
+            let result = try await llm.callFunction(system: prompt.system, user: prompt.user, tool: AssignmentSchema.tool)
+            return Judgment(single: result, prompt: prompt)
+        case .staged:
+            do {
+                let (patch, calls) = try await StagedPipeline.run(JudgeInput(rows: rows, openTasks: openTasks, cards: cards, now: now), llm: llm)
+                return Judgment(patch: patch, calls: calls, failure: nil, fallbackModel: llm.modelName)
+            } catch let error as PipelineError {
+                return Judgment(patch: nil, calls: error.calls, failure: error.description, fallbackModel: llm.modelName)
+            }
+        }
     }
 
     /// 대표 화면을 골라 카드를 만들거나(같은 화면이면 재사용) 행에 연결한다. 행 번호 → 카드

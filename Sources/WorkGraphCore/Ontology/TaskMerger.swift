@@ -1,7 +1,8 @@
 import Foundation
 import GRDB
 
-/// 제목만 다른 같은 목표를 합친다. 판단은 LLM ("이 업무들이 같은 목표인가"), 반영은 기계적으로:
+/// 제목만 다른 같은 목표를 합치고, 목표가 아닌 업무(목적 불명·분류 이름뿐·오락)는 업무 외로 돌린다.
+/// 판단은 LLM ("이 업무들이 같은 목표인가", "이게 목표인가"), 반영은 기계적으로:
 /// 행 판단(task_id)·세션·주제·나중에 할 일·시간을 남길 업무로 옮기고 나머지 노드를 지운다.
 /// 시간이나 제목 유사도로 자동 병합하지 않는다.
 public struct TaskMerger: Sendable {
@@ -9,38 +10,54 @@ public struct TaskMerger: Sendable {
         public var keep: String
         public var merge: [String]
         public var title: String?
-        public init(keep: String, merge: [String], title: String? = nil) { self.keep = keep; self.merge = merge; self.title = title }
+        public var goal: String?
+        public init(keep: String, merge: [String], title: String? = nil, goal: String? = nil) {
+            self.keep = keep; self.merge = merge; self.title = title; self.goal = goal
+        }
     }
 
     public struct Result: Equatable, Sendable {
         public var groups: [Group] = []
         public var merged = 0
+        /// 목표가 아니라서 업무 외로 돌린 업무 id
+        public var notGoals: [String] = []
+        public var retired = 0
         public var raw = ""
         public init() {}
     }
 
+    struct Answer: Decodable {
+        var groups: [Group]?
+        var notGoals: [String]?
+        enum CodingKeys: String, CodingKey { case groups, notGoals = "not_goals" }
+    }
+
     static let system = """
-    You decide which of the user's tasks are the SAME GOAL recorded twice under different titles, for a personal work graph.
-    A task is a goal: a project or deliverable, a course being studied, a recurring routine, a leisure activity. Two tasks are the same goal when their titles, topics, recent work and resources describe the same project/deliverable, the same course, the same routine or the same kind of leisure. Sub-steps of one goal (reading docs for it, checking a tool's usage for it, installing a tool for it, looking at examples for it) are that goal, not separate goals.
-    Do NOT merge different goals that merely share an app, a website or a topic word; do not merge a course with a project; do not merge work with leisure.
-    Return groups only for tasks that should be merged; keep = the id whose title best names the goal (prefer the specific, established one); title = a better Korean title if the kept one is vague. Leave everything else alone. Always answer by calling merge_tasks.
+    You review the user's open tasks for a personal work graph: find tasks that are the SAME GOAL recorded twice under different titles, tasks whose title or goal is too vague, and tasks that are not goals at all.
+    A task is a goal the user is pursuing: a project or deliverable, a course being studied, an errand with an outcome (an application, a payment, an interview), or a recurring routine that serves the user's work or study (a project team's channel, a class). Two tasks are the same goal when their titles, topics, recent work and resources describe the same project/deliverable, the same course, the same errand or the same routine. Sub-steps of one goal (reading docs for it, checking a tool's usage for it, managing a tool's account, subscription or billing for it, installing a tool for it, looking at examples for it) are that goal, not separate goals.
+    Do NOT merge different goals that merely share an app, a website or a topic word; do not merge a course with a project.
+    - groups: tasks to merge. keep = the id whose title best names the goal (prefer the specific, established one); merge = the ids to fold into it; title and goal = a better Korean title and goal sentence when the kept one is vague. A single task whose title or goal is vague but whose recent work shows one real goal gets a group with an empty merge list and the better title and goal.
+    - not_goals: ids of tasks that are not goals: no goal can be named from their title, goal and recent work (the purpose is unknown, or it is a bare category or catch-all), or they are entertainment, a hobby (including regular participation in a game, a league, a sport or a fan community, alone or with a team) or idle browsing. Their rows will count as time outside tasks. When unsure, leave the task alone.
+    Leave everything else alone. Always answer by calling merge_tasks.
     """
 
     static var tool: ToolSpec {
-        ToolSpec(name: "merge_tasks", description: "Groups of task ids that are the same goal.", parameters: .object([
+        ToolSpec(name: "merge_tasks", description: "Groups of task ids that are the same goal, and tasks that are not goals.", parameters: .object([
             "type": "object",
             "properties": .object([
                 "groups": .object(["type": "array", "items": .object([
                     "type": "object",
                     "properties": .object([
                         "keep": .object(["type": "string", "description": "남길 업무 id"]),
-                        "merge": .object(["type": "array", "items": .object(["type": "string"]), "description": "keep 에 합칠 업무 id 들"]),
+                        "merge": .object(["type": "array", "items": .object(["type": "string"]), "description": "keep 에 합칠 업무 id 들 (이름만 고칠 때는 빈 목록)"]),
                         "title": .object(["type": "string", "description": "남길 업무의 제목이 모호할 때만, 더 나은 한국어 제목"]),
+                        "goal": .object(["type": "string", "description": "남길 업무의 목표 문장이 모호할 때만, 더 나은 한국어 한 문장"]),
                     ]),
                     "required": .array(["keep", "merge"]),
                 ])]),
+                "not_goals": .object(["type": "array", "items": .object(["type": "string"]), "description": "목표가 아닌 업무 id 들 (목적 불명·분류 이름뿐, 오락·취미·목적 없는 탐색)"]),
             ]),
-            "required": .array(["groups"]),
+            "required": .array(["groups", "not_goals"]),
         ]))
     }
 
@@ -64,18 +81,24 @@ public struct TaskMerger: Sendable {
         guard tasks.count >= 2 else { return result }
         let answer = try await llm.callFunction(system: system, user: prompt(tasks), tool: tool)
         result.raw = answer.raw
-        guard let parsed = try? JSONDecoder().decode([String: [Group]].self, from: answer.arguments), let groups = parsed["groups"] else { return result }
+        guard let parsed = try? JSONDecoder().decode(Answer.self, from: answer.arguments) else { return result }
         let known = Set(tasks.map(\.id))
-        result.groups = groups.compactMap { group in
+        func filled(_ text: String?) -> Bool { !(text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        result.groups = (parsed.groups ?? []).compactMap { group in
             let targets = group.merge.filter { known.contains($0) && $0 != group.keep }
-            return known.contains(group.keep) && !targets.isEmpty ? Group(keep: group.keep, merge: targets, title: group.title) : nil
+            guard known.contains(group.keep), !targets.isEmpty || filled(group.title) || filled(group.goal) else { return nil }
+            return Group(keep: group.keep, merge: targets, title: group.title, goal: group.goal)
         }
+        // 합치거나 이름을 고치는 업무는 목표로 본 것이라 업무 외로 돌리지 않는다
+        let grouped = Set(result.groups.flatMap { [$0.keep] + $0.merge })
+        result.notGoals = Array(Set(parsed.notGoals ?? []).filter { known.contains($0) && !grouped.contains($0) }).sorted()
         guard !dry else { return result }
-        let accepted = result.groups
-        result.merged = try await db.writer.write { conn in
-            var count = 0
-            for group in accepted { count += try merge(group, conn: conn, now: now) }
-            return count
+        let accepted = result.groups, notGoals = result.notGoals
+        (result.merged, result.retired) = try await db.writer.write { conn in
+            var merged = 0, retired = 0
+            for group in accepted { merged += try merge(group, conn: conn, now: now) }
+            for key in notGoals { if try retire(key, conn: conn, now: now) { retired += 1 } }
+            return (merged, retired)
         }
         return result
     }
@@ -120,6 +143,10 @@ public struct TaskMerger: Sendable {
             if !tally.isEmpty { props["project_seconds"] = .object(tally) }
             try tx.setProps(nodeId: keep.id, props, at: now)
             accumulated.merge(props) { _, new in new }
+            // 분야: 남는 업무에 없으면 사라지는 업무의 것을 받는다
+            if try ThemeGraph.theme(ofTask: keep.id, tx) == nil, let theme = try ThemeGraph.theme(ofTask: victim.id, tx) {
+                try ThemeGraph.attach(taskId: keep.id, to: theme.title, tx, now: now)
+            }
             try ProjectStore.mergeTask(victim.id, into: keep.id, conn)
             try conn.execute(sql: "DELETE FROM edges WHERE src = ? OR dst = ?", arguments: [victim.id, victim.id])
             try conn.execute(sql: "DELETE FROM nodes WHERE id = ?", arguments: [victim.id])
@@ -128,7 +155,42 @@ public struct TaskMerger: Sendable {
         if let title = group.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty, title != keep.title {
             try tx.upsertNode(label: NodeLabel.task, key: keep.key, subtype: nil, title: title, props: [:], at: now)
         }
-        if merged > 0 { try tx.rebindProjects(at: now) }
+        if let goal = group.goal?.trimmingCharacters(in: .whitespacesAndNewlines), !goal.isEmpty {
+            try tx.setProps(nodeId: keep.id, ["goal": .string(goal)], at: now)
+        }
+        if merged > 0 {
+            try tx.rebindProjects(at: now)
+            try ThemeGraph.pruneEmpty(tx)
+        }
         return merged
+    }
+
+    /// 목표가 아닌 업무를 없앤다: 그 행들은 업무 외(판단 이유는 남김), 세션·나중에 할 일과 이제 아무 데도 안 걸린 주제·문제는 지운다
+    public static func retire(_ key: String, conn: Database, now: Double) throws -> Bool {
+        let tx = GraphTx(conn)
+        guard let task = try tx.node(label: NodeLabel.task, key: key) else { return false }
+        try conn.execute(sql: "UPDATE observations SET task_id = NULL, off_task = 1, resource_relevant = 0 WHERE task_id = ?", arguments: [task.id])
+        try conn.execute(sql: "UPDATE chat_messages SET task_id = NULL WHERE task_id = ?", arguments: [task.id])
+        let sessions = try Int64.fetchAll(conn, sql: "SELECT src FROM edges WHERE dst = ? AND type = ?", arguments: [task.id, EdgeType.partOf])
+        let laterItems = try Int64.fetchAll(conn, sql: "SELECT src FROM edges WHERE dst = ? AND type = ?", arguments: [task.id, EdgeType.forTask])
+        var leftovers = try Int64.fetchAll(conn, sql: "SELECT dst FROM edges WHERE src = ? AND type = ?", arguments: [task.id, EdgeType.about])
+        for session in sessions {
+            leftovers += try Int64.fetchAll(conn, sql: "SELECT dst FROM edges WHERE src = ? AND type = ?", arguments: [session, EdgeType.hit])
+        }
+        // 프로젝트 연결·제안·분류 기록에서도 뺀다
+        try conn.execute(sql: "DELETE FROM project_tasks WHERE task_id = ?", arguments: [task.id])
+        try conn.execute(sql: "DELETE FROM project_reviewed WHERE item_id = ?", arguments: ["task:\(task.id)"])
+        try ProjectStore.removeFromProposals("task:\(task.id)", conn)
+        let doomed = (sessions + laterItems + [task.id]).map(String.init).joined(separator: ",")
+        try conn.execute(sql: "DELETE FROM edges WHERE src IN (\(doomed)) OR dst IN (\(doomed))")
+        try conn.execute(sql: "DELETE FROM nodes WHERE id IN (\(doomed))")
+        for id in Set(leftovers) {
+            let links = try Int.fetchOne(conn, sql: "SELECT COUNT(*) FROM edges WHERE src = ? OR dst = ?", arguments: [id, id]) ?? 0
+            if links == 0 { try conn.execute(sql: "DELETE FROM nodes WHERE id = ?", arguments: [id]) }
+        }
+        try ThemeGraph.pruneEmpty(tx)
+        _ = try tx.pruneOrphanResources()
+        try tx.rebindProjects(at: now)
+        return true
     }
 }

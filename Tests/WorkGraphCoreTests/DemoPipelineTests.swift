@@ -9,7 +9,7 @@ final class DemoPipelineTests: XCTestCase {
         try await db.writer.write { try TBox.seed(GraphTx($0), at: 0) }
         let dayStart = 1_790_000_000.0
         let seeded = try DemoScenarios.seed(into: EventStore(db), dayStart: dayStart, home: "/Users/me")
-        let batcher = OntologyBatcher(db: db, llm: DemoLLM(), home: "/Users/me", fileExists: { _ in false },
+        let batcher = OntologyBatcher(db: db, llm: DemoLLM(), config: .singleCall, home: "/Users/me", fileExists: { _ in false },
                                       clock: { dayStart + 20 * 3600 })
         var rounds = 0
         while rounds < 40, case .ok = await batcher.runIfDue(force: true) { rounds += 1 }
@@ -61,7 +61,7 @@ final class GraphRebuilderTests: XCTestCase {
         try await db.writer.write { try TBox.seed(GraphTx($0), at: 0) }
         let dayStart = 1_790_000_000.0
         _ = try DemoScenarios.seed(into: store, dayStart: dayStart, home: "/Users/me")
-        let batcher = OntologyBatcher(db: db, llm: DemoLLM(), home: "/Users/me", fileExists: { _ in false }, clock: { dayStart + 20 * 3600 })
+        let batcher = OntologyBatcher(db: db, llm: DemoLLM(), config: .singleCall, home: "/Users/me", fileExists: { _ in false }, clock: { dayStart + 20 * 3600 })
         var rounds = 0
         while rounds < 40, case .ok = await batcher.runIfDue(force: true) { rounds += 1 }
 

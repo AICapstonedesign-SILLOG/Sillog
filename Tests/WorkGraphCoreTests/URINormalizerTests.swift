@@ -55,4 +55,22 @@ final class URINormalizerTests: XCTestCase {
     func testNonHttpIsReturnedTrimmed() {
         XCTAssertEqual(URINormalizer.normalize(url: "  chrome://settings  "), "chrome://settings")
     }
+
+    // 그래프 카드에서 자료를 누르면 정규화된 키를 다시 열 수 있는 주소로 되돌린다
+    func testOpenableURLTurnsKeysBackIntoAddresses() {
+        let home = "/Users/me"
+        XCTAssertEqual(URINormalizer.openableURL(forKey: "file:~/My Docs/a.pdf", home: home), URL(fileURLWithPath: "/Users/me/My Docs/a.pdf"))
+        XCTAssertEqual(URINormalizer.openableURL(forKey: "file:/opt/tool/x.sh", home: home), URL(fileURLWithPath: "/opt/tool/x.sh"))
+        XCTAssertEqual(URINormalizer.openableURL(forKey: "https://example.com/list?a=1", home: home)?.absoluteString, "https://example.com/list?a=1")
+        XCTAssertEqual(URINormalizer.openableURL(forKey: "arxiv:2401.05566", home: home)?.absoluteString, "https://arxiv.org/abs/2401.05566")
+        XCTAssertEqual(URINormalizer.openableURL(forKey: "doi:10.1145/12345.678", home: home)?.absoluteString, "https://doi.org/10.1145/12345.678")
+        XCTAssertEqual(URINormalizer.openableURL(forKey: "local:5173/board", home: home)?.absoluteString, "http://localhost:5173/board")
+        XCTAssertEqual(URINormalizer.openableURL(forKey: "local:443/", home: home)?.absoluteString, "https://localhost/")
+    }
+
+    func testOpenableURLRefusesKeysThatAreNotAddresses() {
+        for key in ["chrome://settings", "notion:abc", "javascript:alert(1)", "file:", ""] {
+            XCTAssertNil(URINormalizer.openableURL(forKey: key, home: "/Users/me"), key)
+        }
+    }
 }
