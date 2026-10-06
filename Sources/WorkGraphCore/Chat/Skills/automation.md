@@ -1,10 +1,16 @@
-# 작업 자동화
-반복할 목표·입력 범위·결과물·실행 간격을 구체화한다.
-현재 지원하는 자동화는 허용된 자료의 조회·조사와 문서/콘텐츠 생성이다.
-처음에는 실제 도구로 한 번 수행해 결과물을 보여준다. 복잡한 조사는 하위 에이전트로 나눈다.
-사용자가 반복 실행을 요청한 경우에만 propose_automation으로 등록안을 제안한다.
-등록안은 향후 실행 시점 기준으로 해석 가능한 요청이어야 한다. 예: '실행 시점 기준 지난 7일'.
-실행 간격은 시간 단위이며 앱이 켜져 있을 때만 실행된다. 앱 종료·절전 중 누락된 횟수만큼 몰아서 실행하지 않는다.
-사용자가 UI에서 승인하기 전에는 예약이 등록됐다고 말하지 않는다.
-임의 셸 명령, 원본 파일 수정·이동, 메시지 전송은 지원하지 않는다. 가능한 범위를 명확하게 안내한다.
-완료 기준: 한 번 수행한 결과, 명시적인 반복 절차, 사용자 승인 가능한 예약안.
+Use this for recurring reports, monitoring, and periodic summaries. The rules under "Scheduled tasks" apply.
+
+**Good output.** One completed run shown to the user, and a stored prompt that lets a run with no memory of this conversation produce a consistent report. The stored prompt includes:
+- The period, relative to the run time: "실행 시점 기준 지난 7일."
+- The sources and searches to use, including the task, project, and file names found in the first run.
+- The report outline and a fixed title pattern such as "주간 업무 보고 – {시작일}~{종료일}," so that each run can find the previous one.
+- An instruction to find the previous run's report with search_context and to lead with the changes since then.
+- The change signals below.
+- What to report when nothing changed: the range checked and "변경 없음," briefly.
+- Who reads the report: the user, or others (see "The eventual reader").
+
+**Evidence only Sillog has: change signals.** New tasks; tasks with no activity for 7 days or more; new problems and newly resolved ones; LaterItems still open and how long they have been open; new files and downloads linked to tasks; commits since the last run; deadlines found in the records that fall within the next two periods.
+
+**Routing.** For complex research within a run, split it across sub-agents.
+
+완료 기준: one completed run shown to the user; a self-contained stored prompt with the period, sources, outline, change rule, change signals, and no-change rule; a proposal the user can approve.
