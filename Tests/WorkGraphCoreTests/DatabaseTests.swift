@@ -36,7 +36,7 @@ final class DatabaseTests: XCTestCase {
             try tx.upsertEdge(src: session, dst: task, type: "PART_OF", props: [:], addWeight: 0, at: 1)
         }
         let views = try db.writer.read { try String.fetchAll($0, sql: "SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name") }
-        XCTAssertEqual(views, ["v_batches", "v_cards", "v_chats", "v_edges", "v_file_suggestions", "v_nodes", "v_row_tasks", "v_rows", "v_sessions"])
+        XCTAssertEqual(views, ["v_batches", "v_cards", "v_chats", "v_digests", "v_edges", "v_file_suggestions", "v_ledger", "v_nodes", "v_row_tasks", "v_rows", "v_sessions"])
         let row = try db.writer.read { try Row.fetchOne($0, sql: "SELECT time, app_name, text FROM v_rows") }
         XCTAssertEqual(row?["text"] as String?, "화면의 글자")
         XCTAssertEqual((row?["time"] as String?)?.count, 19)                      // "YYYY-MM-DD HH:MM:SS"

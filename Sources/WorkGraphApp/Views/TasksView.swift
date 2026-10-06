@@ -7,6 +7,15 @@ struct TasksView: View {
     @State private var selectedTask: Int64?
     @State private var collapsed: Set<String> = []          // 접은 분야 폴더
     @State private var sessions: [SessionSummary] = []
+    @State private var digests: [Digest] = []
+    @State private var showingDigests: Bool
+    @State private var editing: Digest?
+
+    /// 스냅샷용: 고른 업무와 요약 탭으로 시작
+    init(selectedTask: Int64? = nil, showingDigests: Bool = false) {
+        _selectedTask = State(initialValue: selectedTask)
+        _showingDigests = State(initialValue: showingDigests)
+    }
 
     private static let day: DateFormatter = {
         let formatter = DateFormatter()
@@ -39,6 +48,13 @@ struct TasksView: View {
         .onAppear { state.refreshTasks(); reload() }
         .onChange(of: selectedTask) { _, _ in reload() }
         .onChange(of: state.graphVersion) { _, _ in state.refreshTasks(); reload() }
+        .sheet(item: $editing) { digest in
+            DigestEditSheet(digest: digest) { body in
+                if let id = digest.id { state.editDigest(id: id, body: body) }
+                editing = nil
+                reload()
+            } cancel: { editing = nil }
+        }
     }
 
     // MARK: 왼쪽 목록 (분야 폴더 안에 업무, 파일 트리처럼)
@@ -193,6 +209,15 @@ struct TasksView: View {
                     Text(task.title).font(Brand.suit(28, .semibold)).tracking(-1.26).foregroundStyle(Brand.ink).lineLimit(1).padding(.top, 14)
                 }
                 Spacer(minLength: 16)
+                let pinned = state.isTaskPinned(task.key)
+                Button { state.toggleTaskPin(task.key) } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: pinned ? "pin.fill" : "pin").font(.system(size: 11))
+                        Text(pinned ? "원문 보존 중" : "원문 보존")
+                    }
+                }
+                .buttonStyle(BrandButtonStyle())
+                .help("이 업무의 화면 텍스트와 활동 기록을 보관 기간이 지나도 지우지 않아요")
                 Button { state.prepareResume(taskId: task.id) } label: {
                     HStack(spacing: 7) {
                         Image(systemName: "arrow.counterclockwise").font(.system(size: 12))
@@ -219,16 +244,16 @@ struct TasksView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     stats(task)
-                    HStack(alignment: .firstTextBaseline) {
-                        HStack(spacing: 6) {
-                            Text("작업 세션").font(Brand.suit(14)).foregroundStyle(Brand.ink)
-                            Text("\(sessions.count)").font(Brand.jost(12)).foregroundStyle(Brand.gray)
-                        }
+                    HStack(alignment: .firstTextBaseline, spacing: 22) {
+                        tabButton("작업 세션", count: sessions.count, on: !showingDigests) { showingDigests = false }
+                        tabButton("요약", count: digests.count, on: showingDigests) { showingDigests = true }
                         Spacer()
-                        Text("최근 활동 순").font(Brand.suit(10)).foregroundStyle(Brand.gray)
+                        Text(showingDigests ? "주간·월간, 최근 기간 순" : "최근 활동 순").font(Brand.suit(10)).foregroundStyle(Brand.gray)
                     }
                     .padding(.vertical, 23)
-                    if sessions.isEmpty {
+                    if showingDigests {
+                        digestList
+                    } else if sessions.isEmpty {
                         VStack(spacing: 8) {
                             Image(systemName: "square.3.stack.3d").font(.system(size: 26, weight: .light)).foregroundStyle(Brand.gray)
                             Text("아직 기록된 세션이 없어요").font(Brand.suit(17, .medium)).foregroundStyle(Brand.ink).padding(.top, 6)
@@ -339,7 +364,83 @@ struct TasksView: View {
         }
     }
 
-    private func reload() { sessions = selectedTask.map { state.sessions(ofTask: $0) } ?? [] }
+    private func tabButton(_ title: String, count: Int, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Text(title).font(Brand.suit(14)).foregroundStyle(on ? Brand.ink : Brand.gray)
+                Text("\(count)").font(Brand.jost(12)).foregroundStyle(Brand.gray)
+            }
+            .padding(.bottom, 6)
+            .overlay(alignment: .bottom) { if on { Rectangle().fill(Brand.ink).frame(height: 1.5) } }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: 요약
+
+    @ViewBuilder private var digestList: some View {
+        if digests.isEmpty {
+            VStack(spacing: 8) {
+                Image(systemName: "text.alignleft").font(.system(size: 24, weight: .light)).foregroundStyle(Brand.gray)
+                Text("아직 요약이 없어요").font(Brand.suit(17, .medium)).foregroundStyle(Brand.ink).padding(.top, 6)
+                Text("한 주가 끝나고 이틀 뒤, 그 주의 활동을 요약해 둬요. 오래된 원문은 이 요약이 대신해요.")
+                    .font(Brand.suit(12)).foregroundStyle(Brand.gray).multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity).padding(.vertical, 40)
+        } else {
+            ForEach(digests) { digest in digestCard(digest) }
+        }
+    }
+
+    private func digestCard(_ digest: Digest) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Text(Self.periodLabel(digest)).font(Brand.suit(12, .medium)).foregroundStyle(Brand.tabText)
+                switch digest.status {
+                case .draft: GrayBadge("초안")
+                case .edited: BrandBadge("수정함")
+                case .verified: EmptyView()
+                }
+                Spacer()
+                Button("고치기") { editing = digest }.buttonStyle(.plain).font(Brand.suit(11)).foregroundStyle(Brand.tabText)
+            }
+            if digest.status == .draft, digest.attempts >= DigestBuilder.maxAttempts {
+                Text(digest.level == .week ? "AI 요약이 검증을 통과하지 못해 기록을 모아 만든 초안이에요. 그래서 이 주 원문은 지우지 않아요. '고치기'에서 확인하고 저장하면 유예 기간 뒤 정리돼요."
+                                           : "AI 요약이 검증을 통과하지 못해 기록을 모아 만든 초안이에요.")
+                    .font(Brand.suit(11)).foregroundStyle(Brand.gray).fixedSize(horizontal: false, vertical: true)
+            }
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(Array(digest.body.split(separator: "\n", omittingEmptySubsequences: true).enumerated()), id: \.offset) { _, line in
+                    Text(Self.inline(String(line))).font(Brand.suit(12)).foregroundStyle(Brand.text).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0xF9F8F7)))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Brand.line))
+        .padding(.bottom, 12)
+    }
+
+    static func inline(_ line: String) -> AttributedString {
+        (try? AttributedString(markdown: line, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(line)
+    }
+
+    static func periodLabel(_ digest: Digest) -> String {
+        let calendar = PeriodCalendar(timeZone: TimeZone(identifier: digest.tz) ?? .current)
+        func short(_ day: String) -> String {
+            let parts = day.split(separator: "-").compactMap { Int($0) }
+            return parts.count == 3 ? "\(parts[1])/\(parts[2])" : day
+        }
+        let first = calendar.day(digest.periodStart), last = calendar.day(digest.periodEnd - 1)
+        return "\(digest.level == .week ? "주간" : "월간") · \(short(first))~\(short(last))"
+    }
+
+    private func reload() {
+        sessions = selectedTask.map { state.sessions(ofTask: $0) } ?? []
+        digests = selectedTask.flatMap { id in state.taskList.first { $0.id == id } }.map { state.digests(forTask: $0.key) } ?? []
+    }
 
     static func duration(_ seconds: Double) -> String {
         let minutes = Int(seconds / 60)
@@ -468,6 +569,51 @@ struct ResumeSheet: View {
         }
         if item.kind == .app { return "앱 열기" }
         return app.map { "\($0), \(target)" } ?? target
+    }
+}
+
+/// 요약 고치기. 저장하면 '수정함'이 되고 자동으로 다시 만들지 않는다
+struct DigestEditSheet: View {
+    let digest: Digest
+    let save: (String) -> Void
+    let cancel: () -> Void
+    @State private var text: String
+
+    init(digest: Digest, save: @escaping (String) -> Void, cancel: @escaping () -> Void) {
+        self.digest = digest; self.save = save; self.cancel = cancel
+        _text = State(initialValue: digest.body)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                Eyebrow("DIGEST")
+                Text("요약 고치기").font(Brand.suit(22, .bold)).foregroundStyle(Brand.ink).padding(.top, 8)
+                Text(digest.title).font(Brand.suit(12)).foregroundStyle(Brand.gray).lineLimit(1).padding(.top, 10)
+            }
+            .padding(.horizontal, 32).padding(.top, 26).padding(.bottom, 18)
+            Rectangle().fill(Brand.line).frame(height: 1)
+            TextEditor(text: $text)
+                .font(Brand.suit(12)).scrollContentBackground(.hidden)
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0xF9F8F7)))
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Brand.line))
+                .frame(minHeight: 320)
+                .padding(.horizontal, 32).padding(.top, 18)
+            Text("저장하면 '수정함'으로 바뀌고 자동으로 다시 만들지 않아요. 채팅도 고친 내용을 요약으로 읽어요.")
+                .font(Brand.suit(11)).foregroundStyle(Brand.gray).padding(.horizontal, 32).padding(.vertical, 12)
+            Rectangle().fill(Brand.line).frame(height: 1)
+            HStack(spacing: 8) {
+                Spacer()
+                Button("취소", action: cancel).keyboardShortcut(.cancelAction).buttonStyle(BrandButtonStyle(kind: .secondary))
+                Button("저장") { save(text) }.keyboardShortcut(.defaultAction).buttonStyle(BrandButtonStyle(kind: .primary))
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .padding(.horizontal, 24).frame(height: 63)
+            .background(Color(hex: 0xF6F5F4))
+        }
+        .frame(width: 640)
+        .background(.white)
     }
 }
 

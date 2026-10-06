@@ -7,18 +7,22 @@ import WorkGraphCore
 /// 설정 탭: 왼쪽 유리 사이드바(섹션 6개)와 오른쪽 내용. Figma ST-01~06, ST-W1~W8.
 struct SettingsView: View {
     @EnvironmentObject private var state: AppState
-    @State private var section: Section = .permissions
+    @State private var section: Section
     @State private var launchAtLogin = false
     @State private var launchStatusLoaded = false
     @State private var launchError: String?
 
+    /// section: 처음 보일 구역 (스냅샷용)
+    init(section: Section = .permissions) { _section = State(initialValue: section) }
+
     enum Section: CaseIterable {
-        case permissions, collection, privacy, files, ai, general
+        case permissions, collection, privacy, storage, files, ai, general
         var title: String {
             switch self {
             case .permissions: "권한"
             case .collection: "수집"
             case .privacy: "기록과 개인정보"
+            case .storage: "저장 공간"
             case .files: "파일 제안"
             case .ai: "AI 연결"
             case .general: "일반"
@@ -114,6 +118,7 @@ struct SettingsView: View {
         case .permissions: permissions
         case .collection: collection
         case .privacy: privacy
+        case .storage: StorageSettingsView()
         case .files: files
         case .ai: aiConnection
         case .general: general
@@ -179,22 +184,8 @@ struct SettingsView: View {
     private var privacy: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionLabel("RETENTION")
-            SettingRow("스크린샷 보존 기간", detail: "지난 스크린샷만 지워요. 창 제목과 텍스트는 남아요.") {
-                HStack(spacing: 10) {
-                    HStack(spacing: 0) {
-                        TextField("", value: $state.settings.retentionDays, format: .number)
-                            .textFieldStyle(.plain).font(Brand.suit(11)).foregroundStyle(Brand.text)
-                            .frame(width: 41)
-                            .onChange(of: state.settings.retentionDays) { _, days in
-                                let clamped = min(max(days, 1), 90)
-                                if clamped != days { state.settings.retentionDays = clamped }
-                            }
-                        Text("일").font(Brand.suit(11)).foregroundStyle(Brand.text).padding(.leading, 12)
-                    }
-                    .brandField(height: 33)
-                    .frame(width: 75 + 0)
-                    Text("1~90일").font(Brand.suit(10)).foregroundStyle(Brand.gray)
-                }
+            SettingRow("보관 기간", detail: "스크린샷·화면 텍스트·활동 기록을 얼마나 남길지는 저장 공간에서 정해요.") {
+                Button("저장 공간 열기") { section = .storage }.buttonStyle(BrandButtonStyle())
             }
             SectionLabel("EXCLUDED APPS")
             ExcludedAppsView()
@@ -492,7 +483,7 @@ private struct SuggestFolderRoots: View {
 // MARK: 설정 전용 부품 (공용 부품으로 옮기면 좋음)
 
 /// 설정 한 줄: 왼쪽 제목과 설명, 오른쪽 조작 요소, 아래 구분선.
-private struct SettingRow<Trailing: View>: View {
+struct SettingRow<Trailing: View>: View {
     let title: String
     let detail: String?
     @ViewBuilder let trailing: () -> Trailing
@@ -517,14 +508,14 @@ private struct SettingRow<Trailing: View>: View {
 }
 
 /// 영문 눈썹 글씨 구역 제목 (COLLECTION, RETENTION 같은 것)
-private struct SectionLabel: View {
+struct SectionLabel: View {
     let text: String
     init(_ text: String) { self.text = text }
     var body: some View { Eyebrow(text).padding(.top, 24) }
 }
 
 /// 느낌표 아이콘 안내 줄
-private struct InfoLine: View {
+struct InfoLine: View {
     let text: String
     init(_ text: String) { self.text = text }
     var body: some View {
@@ -537,7 +528,7 @@ private struct InfoLine: View {
 }
 
 /// 회색 바탕 안내 상자 (Codex 필요 안내)
-private struct NoteBox: View {
+struct NoteBox: View {
     let text: String
     init(_ text: String) { self.text = text }
     var body: some View {
@@ -565,7 +556,7 @@ struct GrayBadge: View {
 }
 
 /// 켜짐은 주색 바탕에 흰 손잡이, 꺼짐은 회색 바탕. 34x20, 모서리 6.
-private struct BrandSwitchStyle: ToggleStyle {
+struct BrandSwitchStyle: ToggleStyle {
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration: Configuration) -> some View {
         Button { configuration.isOn.toggle() } label: {
@@ -584,7 +575,7 @@ private struct BrandSwitchStyle: ToggleStyle {
 }
 
 /// 연결 방식, 모델 선택 상자: 흰 바탕 테두리 상자에 아래 화살표
-private struct BrandMenu: View {
+struct BrandMenu: View {
     @Binding var selection: String
     let options: [(String, String)]
     let width: CGFloat
@@ -611,7 +602,7 @@ private struct BrandMenu: View {
 }
 
 /// 한 줄 입력칸
-private struct BrandInput: View {
+struct BrandInput: View {
     @Binding var text: String
     let placeholder: String
     let width: CGFloat

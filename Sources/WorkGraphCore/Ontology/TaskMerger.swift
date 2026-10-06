@@ -148,6 +148,7 @@ public struct TaskMerger: Sendable {
                 try ThemeGraph.attach(taskId: keep.id, to: theme.title, tx, now: now)
             }
             try ProjectStore.mergeTask(victim.id, into: keep.id, conn)
+            try ConsolidationStore.mergeTask(from: victim.key, into: keep.key, now: now, conn)
             try conn.execute(sql: "DELETE FROM edges WHERE src = ? OR dst = ?", arguments: [victim.id, victim.id])
             try conn.execute(sql: "DELETE FROM nodes WHERE id = ?", arguments: [victim.id])
             merged += 1
@@ -181,6 +182,7 @@ public struct TaskMerger: Sendable {
         try conn.execute(sql: "DELETE FROM project_tasks WHERE task_id = ?", arguments: [task.id])
         try conn.execute(sql: "DELETE FROM project_reviewed WHERE item_id = ?", arguments: ["task:\(task.id)"])
         try ProjectStore.removeFromProposals("task:\(task.id)", conn)
+        try ConsolidationStore.retireTask(task.key, conn)
         let doomed = (sessions + laterItems + [task.id]).map(String.init).joined(separator: ",")
         try conn.execute(sql: "DELETE FROM edges WHERE src IN (\(doomed)) OR dst IN (\(doomed))")
         try conn.execute(sql: "DELETE FROM nodes WHERE id IN (\(doomed))")

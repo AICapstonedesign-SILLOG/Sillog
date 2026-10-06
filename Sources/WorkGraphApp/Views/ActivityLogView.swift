@@ -380,6 +380,15 @@ struct ObservationDetail: View {
 
             Rectangle().fill(Brand.line).frame(height: 1)
             HStack {
+                let pinned = state.isDayPinned(observation.ts)
+                Button { state.toggleDayPin(observation.ts) } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: pinned ? "pin.fill" : "pin").font(.system(size: 11))
+                        Text(pinned ? "이 날 원문 보존 중" : "이 날 원문 보존")
+                    }
+                }
+                .buttonStyle(BrandButtonStyle())
+                .help("이 날의 화면 텍스트와 활동 기록을 보관 기간이 지나도 지우지 않아요")
                 Spacer()
                 Button("닫기", action: onClose).buttonStyle(BrandButtonStyle(kind: .secondary)).keyboardShortcut(.cancelAction)
             }

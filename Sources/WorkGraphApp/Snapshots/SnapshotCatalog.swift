@@ -5,7 +5,7 @@ import WorkGraphCore
 /// 스냅샷으로 그릴 화면 목록. 이름은 Figma 화면 번호를 따른다 (Figma 에서 내보낸 같은 이름의 PNG 와 나란히 본다)
 @MainActor
 enum SnapshotCatalog {
-    static var all: [Snapshot] { menus + windows + activity + chat }
+    static var all: [Snapshot] { menus + windows + activity + chat + storage }
 
     /// Figma 창(760) 에서 제목 줄(44)을 뺀 내용 영역
     static let window = CGSize(width: 1180, height: 716)
@@ -84,6 +84,92 @@ enum SnapshotCatalog {
             s.chat = ChatState(db: database, makeClient: { .model(offline) }, makeProjectClient: { offline })
         })
         return [Snapshot(name: "CH-01", size: window, view: AnyView(MainWindow().environmentObject(state)))]
+    }
+
+    /// 저장 공간 설정(기본·항목별 보관일 펼침), 첫 정리 동의 시트, 업무 요약 탭
+    static var storage: [Snapshot] {
+        [
+            shot("ST-STORAGE", SettingsView(section: .storage), size: window) { s in storageState(s) },
+            shot("ST-STORAGE-ADVANCED", ScrollView { StorageSettingsView(advanced: true).padding(.horizontal, 34).padding(.bottom, 40) }.background(.white),
+                 size: CGSize(width: 946, height: 1500)) { s in storageState(s) },
+            shot("ST-CLEANUP-CONSENT", CleanupPreviewSheet(preview: sampleCleanup)) { s in storageState(s) },
+            digestShot("TK-DIGEST"),
+        ]
+    }
+
+    private static func storageState(_ s: AppState) {
+        s.phase = .ready; s.status = collector()
+        var usage = StorageUsage()
+        usage.bytes = [.screenshots: 38_400_000, .screenText: 15_600_000, .batchLog: 6_000_000, .screenCards: 700_000, .observations: 668_000,
+                       .graph: 582_000, .other: 152_000, .aiRequests: 135_000, .chatLibrary: 123_000, .digests: 49_000]
+        usage.dailyGrowth = [.screenText: 520_000, .batchLog: 200_000, .observations: 22_000, .screenCards: 23_000, .graph: 19_000]
+        usage.measuredWithDBStat = true
+        s.storageUsage = usage
+        s.retention = .standard
+        var report = Consolidator.Report(startedAt: todayAt(3, 12))
+        report.finishedAt = todayAt(3, 13); report.weekly = 3; report.prunedDays = 2; report.reclaimedBytes = 8_400_000
+        s.consolidationReport = report
+        s.rawRecordsSince = "2026-09-08"
+        s.pruneConsented = true
+        s.taskList = recentTasks
+        s.retentionPins = [RetentionPin(id: 1, kind: .task, key: "report", createdAt: 0), RetentionPin(id: 2, kind: .period, key: "2026-09-15..2026-09-15", createdAt: 0)]
+    }
+
+    private static var sampleCleanup: CleanupPreview {
+        var plan = PrunePlan()
+        plan.days = [.init(day: "2026-09-01", categories: [.batchLog, .screenText]), .init(day: "2026-09-02", categories: [.batchLog, .screenText])]
+        plan.counts = [.screenText: 1_234, .batchLog: 96]
+        plan.estimatedBytes = 9_800_000
+        plan.consentNeeded = true
+        plan.blockedReason = "2026-W37 주는 요약 확인 뒤 유예 기간(7일) 중이에요"
+        return CleanupPreview(plan: plan, digests: Array(sampleDigests.prefix(2)), consentNeeded: true)
+    }
+
+    private static var sampleDigests: [Digest] {
+        func digest(_ id: Int64, _ level: PeriodCalendar.Level, _ period: String, _ status: Digest.Status, _ content: DigestContent, seconds: Double) -> Digest {
+            var metrics = DigestMetrics()
+            metrics.activeSeconds = seconds; metrics.sessions = 4; metrics.aiRequests = 6
+            metrics.resources = [.init(key: "https://flask.palletsprojects.com/quickstart/", title: "Flask 공식 문서", seconds: 2_400),
+                                 .init(key: "file:~/flask/app.py", title: "app.py", seconds: 5_100)]
+            let range = PeriodCalendar().period(id: period)
+            return Digest(id: id, level: level, period: period, periodStart: range?.start ?? 0, periodEnd: range?.end ?? 0, tz: TimeZone.current.identifier,
+                          taskKey: "flask", title: Digest.title(level: level, task: "Flask 웹앱 개발", period: period),
+                          body: DigestRenderer.body(content, metrics: metrics), content: content, metrics: metrics, anchors: ["flask"],
+                          status: status, model: status == .verified ? "gpt-6-luna" : nil, promptVersion: DigestPrompt.version, inputHash: "preview",
+                          attempts: status == .draft ? DigestBuilder.maxAttempts : 0, createdAt: 0, verifiedAt: status == .draft ? nil : 0)
+        }
+        return [
+            digest(3, .week, "2026-W39", .verified, DigestContent(
+                summary: "로그인 흐름을 Flask 세션으로 옮기고 회원가입 폼 검증을 붙였다. 배포 설정은 아직 손대지 않았다.",
+                progress: [.init(text: "로그인 오류(세션 만료)를 해결했다.", status: "evidenced", anchors: ["flask"]),
+                           .init(text: "회원가입 폼 검증을 작성하는 중이다.", status: "in_progress", anchors: ["flask"]),
+                           .init(text: "비밀번호 재설정 메일 구현을 AI에게 요청했다.", status: "requested", anchors: ["flask"])],
+                problems: [.init(text: "세션 쿠키가 저장되지 않음", state: "resolved", anchors: ["flask"])],
+                openItems: [.init(text: "배포용 환경 변수 정리", anchors: ["flask"])]), seconds: 9_600),
+            digest(2, .week, "2026-W38", .draft, DigestContent(
+                summary: "Flask 웹앱 개발 업무 기록이 약 1시간 10분 있습니다. 로그인 페이지 레이아웃을 손봤다.",
+                progress: [.init(text: "로그인 페이지 레이아웃을 손봤다.", status: "in_progress", anchors: ["flask"]),
+                           .init(text: "Flask 공식 문서의 세션 설명을 읽었다.", status: "in_progress", anchors: ["flask"])]), seconds: 4_200),
+            digest(1, .month, "2026-09", .edited, DigestContent(summary: "9월에는 Flask 웹앱의 인증 흐름을 만들었다. 고친 요약: 발표 전에 배포까지 마치기로 했다."), seconds: 21_000),
+        ]
+    }
+
+    private static func digestShot(_ name: String) -> Snapshot {
+        let database = try? WGDatabase.inMemory()
+        var taskId: Int64?
+        try? database?.writer.write { conn in
+            let tx = GraphTx(conn)
+            let task = try tx.upsertNode(label: NodeLabel.task, key: "flask", subtype: nil, title: "Flask 웹앱 개발",
+                                         props: ["active_seconds": 9_600, "last_active": .number(todayAt(14, 32))], at: todayAt(14, 32))
+            let session = try tx.upsertNode(label: NodeLabel.session, key: "s_flask", subtype: nil, title: "세션",
+                                            props: ["start": .number(todayAt(13, 0)), "end": .number(todayAt(14, 32)), "active_seconds": 5_400,
+                                                    "summaries": .array(["로그인 흐름을 구현했다."])], at: todayAt(14, 32))
+            try tx.upsertEdge(src: session, dst: task, type: EdgeType.partOf, props: [:], addWeight: 0, at: todayAt(14, 32))
+            for var digest in sampleDigests { digest.id = nil; try DigestStore.save(conn, digest) }
+            taskId = task
+        }
+        let state = AppState(preview: { s in s.phase = .ready; s.status = collector(); s.selectedTab = .tasks }, database: database)
+        return Snapshot(name: name, size: window, view: AnyView(TasksView(selectedTask: taskId, showingDigests: true).environmentObject(state)))
     }
 
     private static func batchShot(_ name: String, _ view: ActivityLogView, failedFirst: Bool = false) -> Snapshot {

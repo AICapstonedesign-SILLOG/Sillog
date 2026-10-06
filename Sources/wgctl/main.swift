@@ -68,6 +68,17 @@ wgctl [--db PATH] <command>
                                         --retype: 모든 업무의 종류를 다시, --dry-run: 판정만 보고 기록 안 함)
   theme-eval [--gold FILE] [--runs N]   정답 세트 업무를 빈 분야 목록에서 판정만 받아(기록 안 함) 분야·종류 정확도, 새 분야 수, 흔들림을 낸다
   set-theme TASK_ID (분야이름 | --clear)   업무의 분야를 바꾸거나 뺀다 (앱을 끄고 실행)
+  storage                               저장 공간: 범주별 크기, 최근 30일 하루 평균 증가량, 빈 페이지 수
+  retention [--preset light|standard|long|keepRaw] [--set 항목=일수|none] [--grace N] [--narrate on|off]
+                                        원문 보관 기간 보기·바꾸기 (항목: screenText, batchLog, observations, screenCards, aiRequests, fileEvents)
+  pins [--add|--remove task:업무KEY | period:YYYY-MM-DD..YYYY-MM-DD]
+                                        원문을 지우지 않고 남길 업무·기간
+  consolidate [--dry-run] [--ledger-only] [--no-prune] [--no-llm] [--consent]
+                                        기록 정리: 사용 시간 기록 → 주간·월간 요약 → (동의했으면) 보관 기간이 지난 원문 정리 → 공간 회수.
+                                        --dry-run: 지울 날·건수·예상 회수량만, --ledger-only: 사용 시간 기록만 갱신하고 업무 시간과 비교,
+                                        --no-llm: 요약을 수치와 세션 요약으로만, --consent: 첫 정리 동의를 기록 (앱을 끄고 실행)
+  digest list [--task KEY] | digest show --week 2026-W40 | --month 2026-10 [--task KEY]
+                                        업무별 주간·월간 요약
 
 기본 DB: \(WGDatabase.defaultPath())
 기본 LLM: ChatGPT 로그인(codex), 모델 \(CodexResponsesClient.defaultModel). --base-url 을 주면 OpenAI 호환 서버(openai)로 간주한다
@@ -518,7 +529,7 @@ do {
 
     case "batch-show":
         guard let id = args.first.flatMap(Int64.init) else { fail("사용법: batch-show ID") }
-        guard let batch = try db.writer.read({ try BatchRecord.fetchOne($0, key: id) }) else { fail("배치 #\(id) 없음") }
+        guard let batch = try store.batch(id: id) else { fail("배치 #\(id) 없음") }
         print("=== 배치 #\(id) \(batch.status) \(batch.model ?? "-") 행 \(batch.rowCount) 토큰 \(batch.promptTokens)+\(batch.completionTokens)")
         if let error = batch.error { print("오류: \(error)") }
         print("\n--- LLM 이 받은 것: 시스템 프롬프트 ---\n\(batch.systemPrompt ?? "(미저장)")")
@@ -1204,6 +1215,113 @@ do {
         for node in graph.nodes { print("(\(node.label)\(node.subtype.map { ":\($0)" } ?? "")) \(node.title)  [\(node.key)]") }
         let titles = Dictionary(graph.nodes.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
         for edge in graph.edges { print("  \(titles[edge.src] ?? "?") -[\(edge.type) w=\(Int(edge.weight))]-> \(titles[edge.dst] ?? "?")") }
+
+    case "storage":
+        let captures = URL(fileURLWithPath: dbPath).deletingLastPathComponent().appendingPathComponent("captures", isDirectory: true)
+        let usage = try StorageUsage.measure(db: db, capturesDir: captures)
+        func size(_ bytes: Int64) -> String { ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file) }
+        print("측정 방식: \(usage.measuredWithDBStat ? "SQLite dbstat" : "내용 길이로 어림 (dbstat 없음)")")
+        for category in StorageUsage.Category.allCases {
+            guard let bytes = usage.bytes[category], bytes > 0 else { continue }
+            let growth = (usage.dailyGrowth[category] ?? 0) > 0 ? "  (최근 30일 하루 평균 +\(size(usage.dailyGrowth[category]!)))" : ""
+            print("  \(category.title): \(size(bytes))\(growth)")
+        }
+        print("합계 \(size(usage.total)) · DB 파일(+WAL) \(size(usage.databaseFileBytes)) · 빈 페이지 \(usage.freePages)개 (\(size(Int64(usage.freePages * usage.pageSize))))")
+        print("최근 30일 DB 하루 평균 증가: \(size(usage.totalDailyGrowth))")
+
+    case "retention":
+        var policy = try db.writer.read { try RetentionPolicy.load($0) }
+        var changed = false
+        if let name = option("--preset") {
+            guard let preset = RetentionPolicy.Preset(rawValue: name) else { fail("프리셋: \(RetentionPolicy.Preset.allCases.map(\.rawValue).joined(separator: ", "))") }
+            policy.apply(preset); changed = true
+        }
+        while let assignment = option("--set") {
+            let parts = assignment.split(separator: "=").map(String.init)
+            guard parts.count == 2, let item = RetentionPolicy.Item(rawValue: parts[0]), parts[1] == "none" || Int(parts[1]) != nil else {
+                fail("--set 항목=일수|none (항목: \(RetentionPolicy.Item.allCases.map(\.rawValue).joined(separator: ", ")))")
+            }
+            policy.setDays(item, Int(parts[1])); changed = true
+        }
+        if let grace = option("--grace").flatMap(Int.init) { policy.graceDays = grace; changed = true }
+        if let narrate = option("--narrate") { policy.narrateDigests = narrate == "on"; changed = true }
+        if changed {
+            let saved = policy.normalized()
+            try db.writer.write { try saved.save($0) }
+            policy = saved
+        }
+        print("프리셋: \(policy.preset?.title ?? "사용자 지정")")
+        for item in RetentionPolicy.Item.allCases { print("  \(item.rawValue) (\(item.title)): \(policy.days(item).map { "\($0)일" } ?? "무기한")") }
+        print("  유예 \(policy.graceDays)일 · 요약 서술 \(policy.narrateDigests ? "AI" : "끔")")
+        let consented = try db.writer.read { try ConsolidationStore.value(ConsolidationStore.Key.firstPruneConsentedAt, $0) }
+        print("첫 정리 동의: \(consented.flatMap(Double.init).map { Date(timeIntervalSince1970: $0).formatted() } ?? "아직 없음 (consolidate --consent)")")
+
+    case "pins":
+        let now = Date().timeIntervalSince1970
+        for (name, add) in [("--add", true), ("--remove", false)] {
+            while let value = option(name) {
+                let parts = value.split(separator: ":", maxSplits: 1).map(String.init)
+                guard parts.count == 2, let kind = RetentionPin.Kind(rawValue: parts[0]) else { fail("pins --add|--remove task:업무KEY | period:YYYY-MM-DD..YYYY-MM-DD") }
+                try db.writer.write { conn in
+                    if add { try ConsolidationStore.pin(kind, key: parts[1], at: now, conn) } else { try ConsolidationStore.unpin(kind, key: parts[1], conn) }
+                }
+            }
+        }
+        let pins = try db.writer.read { try ConsolidationStore.pins($0) }
+        if pins.isEmpty { print("보존 핀 없음") }
+        for pin in pins { print("\(pin.kind.rawValue): \(pin.key)") }
+
+    case "consolidate":
+        let dry = flag("--dry-run"), ledgerOnly = flag("--ledger-only"), noPrune = flag("--no-prune"), consent = flag("--consent"), noLLM = flag("--no-llm")
+        let now = Date().timeIntervalSince1970
+        if dry {
+            let plan = try Pruner(db: db, ledger: LedgerBuilder()).plan(now: now)
+            if plan.isEmpty {
+                print("지금 지울 원문 없음")
+            } else {
+                print("정리할 날: \(plan.firstDay ?? "-") ~ \(plan.lastDay ?? "-") (\(plan.days.count)일)")
+                for (category, count) in plan.counts.sorted(by: { $0.key.rawValue < $1.key.rawValue }) { print("  \(category.item.title): \(count)건") }
+                print("예상 회수: 약 \(ByteCountFormatter.string(fromByteCount: plan.estimatedBytes, countStyle: .file))")
+            }
+            if let reason = plan.blockedReason { print("멈춘 이유: \(reason)") }
+            if plan.consentNeeded { print("첫 정리 동의가 아직 없습니다. 실제로 지우려면 consolidate --consent") }
+        } else {
+            let instance = InstanceLock(databasePath: dbPath)
+            guard instance.acquire() else { fail("이 DB 를 쓰는 Sillog 앱이 실행 중입니다. 앱이 직접 정리하므로 앱을 끈 뒤에 실행하세요.") }
+            defer { instance.release() }
+            if consent { try db.writer.write { try ConsolidationStore.set(ConsolidationStore.Key.firstPruneConsentedAt, String(now), $0) } }
+            let consolidator = Consolidator(db: db, llm: noLLM ? nil : makeClient().client)
+            let report = await consolidator.run(prune: !noPrune, ledgerOnly: ledgerOnly, narrate: noLLM ? false : nil)
+            print("사용 시간 기록 \(report.ledgerDays)일 갱신 · \(report.summary)")
+            for note in report.notes { print("  - \(note)") }
+            if ledgerOnly {
+                // 업무 화면의 시간(업무 노드)과 사용 시간 기록 합계 비교. 실시간 정리는 창 끝을 조금 다르게 잡아 몇 초 어긋날 수 있다
+                let (totals, tasks) = try db.writer.read { conn in
+                    (try LedgerBuilder().taskTotals(conn, now: now), try GraphTx(conn).nodes(label: NodeLabel.task))
+                }
+                var differ = 0
+                for task in tasks {
+                    let shown = task.props["active_seconds"]?.doubleValue ?? 0, ledger = totals[task.key]?.seconds ?? 0
+                    if abs(shown - ledger) >= 60 { differ += 1; print("  \(task.title): 업무 화면 \(Int(shown))초 / 사용 시간 기록 \(Int(ledger))초") }
+                }
+                print("업무 \(tasks.count)개 중 1분 이상 다른 것 \(differ)개")
+            }
+        }
+
+    case "digest":
+        let sub = args.first ?? "list"
+        if !args.isEmpty { args.removeFirst() }
+        let task = option("--task")
+        let period = option("--week") ?? option("--month")
+        let digests = try db.writer.read { conn in
+            try DigestStore.recent(conn, period: sub == "show" ? period : nil, limit: 100).filter { task == nil || $0.taskKey == task }
+        }
+        if sub == "show" && period == nil { fail("사용법: digest show --week 2026-W40 | --month 2026-10 [--task 업무KEY]") }
+        if digests.isEmpty { print("다이제스트 없음") }
+        for digest in digests {
+            print("== \(digest.title) [\(digest.status.rawValue)\(digest.model.map { ", \($0)" } ?? "")] key=\(digest.taskKey)")
+            if sub == "show" { print(digest.body + "\n") }
+        }
 
     default:
         print(usage)
