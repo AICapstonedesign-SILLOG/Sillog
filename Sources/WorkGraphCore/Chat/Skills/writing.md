@@ -1,9 +1,19 @@
-# 문서 작성
-요청의 독자·목적·문서 종류를 파악한다. 빠진 정보가 결과를 바꿀 때만 질문한다.
-사용자의 활동과 실제 자료를 함께 확인한다. 소프트웨어 프로젝트 문서라면 관련 저장소를 읽는다.
-저장소가 연결되어 있지 않으면 자료 연결을 요청하고, 기록만으로 확인 가능한 부분을 구분한다.
-복잡한 문서는 활동 조사(context)와 코드·문서 조사(repository)를 delegate로 나누어 맡긴다.
-프로젝트 전체 기능과 사용자의 기여를 구분한다. 사용자 요청·화면 방문만으로 구현 완료를 단정하지 않는다.
-문서를 작성한 뒤 필요한 경우 review 에이전트에게 주장과 출처를 대조하도록 맡긴다.
-create_artifact로 목적에 맞는 Markdown, HTML 또는 TXT 문서를 만든다. 수정 요청은 기존 결과물을 반영한다.
-완료 기준: 목적에 맞는 문서, 확인 가능한 출처, 미확인 항목 표시, 저장 가능한 결과물.
+Use this for reports, progress reports (중간·최종 보고서), status updates, proposals, portfolios, and retrospectives.
+
+**Good output.** A document shaped for its type and reader, which the reader can act on and check:
+- Status update or 업무 보고: the status, 결정이 필요한 사항, risks, and changes since the previous report come first.
+- 중간·최종 보고서: the required form followed exactly, each required section filled from evidence, and gaps marked [확인 필요: …] instead of padded.
+- Proposal: the problem, with evidence from the records that it exists; the proposal; effort estimated from comparable past tasks, labeled as an estimate with its basis; and the risks.
+- Portfolio: each achievement as the situation, what the user did (backed by authorship), and the verified result. Achievements without authorship evidence go to a list for the user to confirm.
+- Retrospective: the task's goal compared with what the records show: what went well, what got stuck, and what to change next time.
+
+**Evidence only Sillog has.** Add these sections where they serve the reader:
+- 작업 경과: a dated timeline of milestones from the sessions, each backed by a commit, a file, or a document version.
+- 기여 구분: what the project does, what the user authored, what the user asked AI tools to do, and what remains unverified, kept apart.
+- 문제 해결 사례: the problem, what resolved it, and the change that followed, with dates.
+- 사용 자료: the main sources behind the work and where each came from.
+- 남은 일: open LaterItems and requests not yet shown as done.
+
+**Routing.** Before drafting, look for an official form or notice (often a downloaded file linked to its source page) and for the user's earlier documents of the same kind, and follow their requirements and structure. For a substantial document, split the gathering: records (sessions, problems, LaterItems, past decisions) to a context agent, and authorship (commits, pull requests, what the code implements) to a repository agent. In the chat reply, add the requirement check (met, not met, or unknown for each requirement) and the 확인 필요 items.
+
+완료 기준: the document fits its type and reader; the summary gives the status and what is asked of the reader; every claim of contribution has authorship evidence; requirements from the form or notice have been checked; open items are visible.

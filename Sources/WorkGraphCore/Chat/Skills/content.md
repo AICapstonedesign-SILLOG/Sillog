@@ -1,9 +1,16 @@
-# 콘텐츠 제작
-대상 독자·전달할 메시지·출력 형식을 확인하고 사용자 자료에서 사실과 사례를 수집한다.
-복잡한 콘텐츠는 조사 에이전트(context/repository/research)로 자료를 모아 구성·원고에 반영한다.
-블로그는 Markdown, 순수 원고는 TXT, 소개 페이지와 발표 슬라이드는 자체 포함된 HTML로 제작한다.
-HTML은 스크립트·외부 폰트·외부 이미지·추적 요청 없이 본문과 인라인 CSS로 구성한다.
-발표 자료는 section 단위로 슬라이드를 구분하고 인쇄용 page-break를 넣는다.
-create_artifact로 실제 결과물을 만든다. HTML을 만들고 PPTX를 만들었다고 말하지 않는다.
-이미지·영상 생성 도구는 현재 없으므로 생성했다고 주장하지 않는다.
-완료 기준: 실제로 열어 볼 결과물, 사실·출처 확인, 요청한 형식과 지원 범위의 일치.
+Use this for blog posts, presentations, introduction pages, and other content written for an audience.
+
+**Good output.** One clear message for a defined audience, told through a specific, dated story from the records instead of general claims, in the user's own voice.
+- Blog post (Markdown): open with a concrete moment from the records, tell the story, then give the takeaways and references.
+- Slides (HTML): one message per slide, stated in its title, with evidence on the slide such as a number, a timeline, or an inline SVG chart, and a final section with speaker notes for each slide.
+- Introduction page (HTML), or script and copy (TXT).
+
+**Evidence only Sillog has.**
+- The real story: when the work started, the turning points, the problems hit and how each was solved, numbers taken from commits, files, or results, and the before and after. Never invent anecdotes, quotes, or results.
+- The user's voice: their earlier posts, drafts, and own messages in the library or the records. Follow their tone, sentence length, and terms.
+
+**For a public audience.** Every claim, statistic, and date needs a source, and the user's contribution goes only as far as the authorship evidence. Leave out internal details such as project codenames, colleagues' names, private URLs, and secrets unless the user asks for them. Other people's messages seen on screen aren't material for public content.
+
+**Routing.** For complex content, delegate the material gathering to context, repository, or research agents. In the chat reply, list the facts the user should confirm before publishing.
+
+완료 기준: an artifact the user can open; one clear message; a story built from dated records; traceable facts; a tone that matches the user; nothing private or internal unless the user asked for it.
