@@ -480,6 +480,13 @@ final class AppState: ObservableObject {
         Task { await coordinator.setPaused(next) }
     }
 
+    /// 채팅 화면에서 모델 바꾸기: 다음 메시지부터 그 모델로 보낸다. 설정 화면을 거치지 않으니 여기서 저장한다 (업무 정리 모델은 그대로)
+    func selectChatModel(_ slug: String) {
+        guard !slug.isEmpty, settings.chatCodexModel != slug else { return }
+        settings.chatCodexModel = slug
+        if !isPreview { settings.save() }
+    }
+
     func applySettings() {
         settings.save()
         NSApp.setActivationPolicy(settings.showDockIcon ? .regular : .accessory)
