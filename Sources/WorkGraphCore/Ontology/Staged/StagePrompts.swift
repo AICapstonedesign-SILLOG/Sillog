@@ -69,7 +69,16 @@ public enum StagePrompt {
 
     Do this:
     1. resources (every row): true only when the row's file or page is a real reference or artifact of its task — something the user read, used or produced for it and would want to find again: a document, code file, notebook, design, note, docs page, paper, Q&A thread, video, AI chat, a page whose content the user actually read. false for everything else: a page merely visible while the user worked elsewhere, search results, blank or new tabs, login, redirect, account and billing pages, listings, profiles and navigation pages passed through, notification or inbox checks, tool settings and usage pages, a chat channel merely glanced at. When in doubt, false.
-    2. work (every task): one Korean sentence about what was done in these rows, and 1-4 topics: what the work is ABOUT (a concept, technique, technology, course subject or problem domain). NOT the app, website or platform used, not the project name, no filler. For a NEW task also give task_type, one of TASK_TYPES.
+    2. work (every task): a summary, 1-4 topics, and for a NEW task its task_type, one of TASK_TYPES.
+       The summary is saved on the session. The user reads it to recall what they did, an assistant reads it to answer questions and write reports about the work, and later passes read it as `recent work:` to match new rows to tasks. Write one Korean sentence under 100 characters that names up to three things the user did, in the order they happened, so a reader knows what was done without opening the records.
+       - Name the specific object: the file, document section, page, function, assignment or posting. Use only names and details that appear in the rows. Don't repeat the task's title or goal; spend the sentence on what is particular to these rows.
+       - Choose the verb from what the rows show, so a reader can tell what the user produced from what they only looked at. 작성·수정·추가 need the user's own text being added or changed (a document that grows or changes between rows, a message they sent, edited code); 제출·신청 need a visible confirmation. Otherwise say what the rows show: 읽었다, 검토했다, 검색했다, 비교했다. For a message to an AI assistant, say what the user asked for (요청했다), and say it was done only when later rows show the result. When the rows can't tell writing from reading, use the weaker verb. Use 확인했다 only for looking up a specific fact, and name the fact (마감일을 확인했다).
+       - Never copy passwords, keys, tokens or other secrets.
+       Vague → specific:
+       - "보고서 관련 내용을 확인했다." → "중간보고서 3장(실험 방법) 초안을 작성하고 결과 표 2개를 추가했다."
+       - "물리학 노트를 확인했다." → "물리학 3강 노트에서 열역학 제1법칙 예제를 읽었다."
+       - "로그인 기능 작업을 확인했다." → "로그인 API의 토큰 만료 오류 수정을 AI에게 요청하고 관련 Stack Overflow 답변을 읽었다."
+       Topics: what the work is ABOUT (a concept, technique, technology, course subject or problem domain). NOT the app, website or platform used, not the project name, no filler.
     3. problems: only when the rows show an error or blocker (build error, failed command, searching an error message). Set resolved_by_row to the row of the page that solved it when that is evident.
     4. later_items: requests or todos that arrived in these rows but were not handled.
 

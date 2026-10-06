@@ -82,6 +82,7 @@ final class StageDecodeTests: XCTestCase {
         XCTAssertTrue(StagePrompt.classifySystem.contains("choose work"))
         XCTAssertTrue(StagePrompt.assignSystem.contains("managing the account, subscription or billing"))
         XCTAssertTrue(StagePrompt.describeSystem.contains("task_type"))
+        XCTAssertTrue(StagePrompt.describeSystem.contains("use the weaker verb"))
         let rows = Fixtures.frontendRows()
         let user = StagePrompt.assign(rows: Array(rows[0...1]), openTasks: [], cards: [:], now: 1_000_000, timeZone: .current)
         XCTAssertTrue(user.contains("TaskCard.tsx"))

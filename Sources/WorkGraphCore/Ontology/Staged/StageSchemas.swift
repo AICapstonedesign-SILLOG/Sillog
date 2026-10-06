@@ -95,7 +95,7 @@ public enum StageTool {
                     "type": "object",
                     "properties": .object([
                         "task": .object(["type": "string", "description": "TASKS 의 ref"]),
-                        "summary": .object(["type": "string", "description": "이 행들에서 그 업무로 한 일, 한국어 한 문장"]),
+                        "summary": .object(["type": "string", "description": "이 행들에서 사용자가 한 일. 구체적인 대상(파일·문서 부분·페이지)과 행이 보여 주는 동사(작성·수정·제출은 근거가 보일 때만)로 쓴 한국어 한 문장, 100자 이내"]),
                         "topics": .object(["type": "array", "items": .object(["type": "string"]), "description": "무엇에 관한 일인지 1~4개 (개념·기술·과목·문제 영역). 앱·사이트·플랫폼·프로젝트 이름과 채움말은 아님"]),
                         "task_type": .object(["type": "string", "enum": .array(TBox.leafTaskTypes.map { .string($0) }), "description": "NEW 업무일 때 필수"]),
                     ]),
