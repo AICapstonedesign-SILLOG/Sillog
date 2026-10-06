@@ -88,18 +88,31 @@ final class PrunerTests: XCTestCase {
         XCTAssertTrue(plan.blockedReason?.contains("초안") ?? false, plan.blockedReason ?? "-")
     }
 
-    func testFailedDigestKeepsRawUntilTheUserSavesIt() async throws {
+    func testFailedDigestKeepsItsWeekWhileLaterWeeksAreCleaned() async throws {
         let (db, clock) = try await seeded()
-        clock.now += 8 * 86_400
+        clock.now += 28 * 86_400                          // 10/20 화면 텍스트도 보관 기간(30일)이 지났다
         try consent(db)
         try await db.writer.write {
             try $0.execute(sql: "UPDATE digests SET status = 'draft', verified_at = NULL, attempts = ? WHERE period = '2026-W40'", arguments: [DigestBuilder.maxAttempts])
         }
         let pruner = Pruner(db: db, ledger: F.ledger)
         var plan = try pruner.plan(now: clock.now)
-        XCTAssertTrue(plan.isEmpty)
-        XCTAssertTrue(plan.blockedReason?.contains("검증을 통과하지 못해") ?? false, plan.blockedReason ?? "-")
+        XCTAssertEqual(plan.days.map(\.day), ["2026-10-20"], "검증에 실패한 주는 건너뛰고 그 뒤 주는 정리한다")
+        XCTAssertTrue(plan.days.first?.categories.contains(.screenText) ?? false)
+        XCTAssertEqual(plan.keptWeeks, ["2026-W40"])
+        XCTAssertTrue(plan.keptReasons.first?.contains("검증을 통과하지 못해") ?? false, plan.keptReasons.first ?? "-")
+        XCTAssertNil(plan.blockedReason)
+        let keptWeekTexts = { try await db.writer.read {
+            try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM observations WHERE ts < ? AND text_id IS NOT NULL", arguments: [F.at("2026-09-29", 0)]) ?? 0
+        } }
+        let before = try await keptWeekTexts()
+        try pruner.execute(plan, now: clock.now)
+        XCTAssertEqual(try texts(db), ["공유되는 화면 텍스트", "9월 28일에만 있는 텍스트"], "남긴 주가 함께 쓰는 텍스트도 지우지 않는다")
+        XCTAssertGreaterThan(before, 0)
+        let after = try await keptWeekTexts()
+        XCTAssertEqual(after, before, "남긴 주의 관측은 화면 텍스트를 그대로 가리킨다")
 
+        // 사용자가 확인하고 저장하면 유예 기간 뒤 그 주도 정리한다
         let ids = try await db.writer.read { try Int64.fetchAll($0, sql: "SELECT id FROM digests WHERE period = '2026-W40'") }
         try await db.writer.write { conn in for id in ids { try DigestStore.edit(conn, id: id, body: "확인한 요약", now: clock.now) } }
         plan = try pruner.plan(now: clock.now)
@@ -107,6 +120,7 @@ final class PrunerTests: XCTestCase {
         XCTAssertTrue(plan.blockedReason?.contains("유예") ?? false, plan.blockedReason ?? "-")
         plan = try pruner.plan(now: clock.now + 8 * 86_400)
         XCTAssertEqual(plan.days.first?.day, "2026-09-28", "확인하고 저장한 요약은 유예 기간 뒤 원문을 대신한다")
+        XCTAssertTrue(plan.keptWeeks.isEmpty)
     }
 
     func testTaskPinKeepsThatTasksTextAndPeriodPinSkipsTheDay() async throws {

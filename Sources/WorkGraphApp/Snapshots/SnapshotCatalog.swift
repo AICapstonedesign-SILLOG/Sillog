@@ -122,6 +122,7 @@ enum SnapshotCatalog {
         plan.estimatedBytes = 9_800_000
         plan.consentNeeded = true
         plan.blockedReason = "2026-W37 주는 요약 확인 뒤 유예 기간(7일) 중이에요"
+        plan.keptReasons = ["2026-W35 주 'Flask 웹앱 개발' 요약이 검증을 통과하지 못해 이 주 원문은 남겨 뒀어요. 업무 탭 요약의 '고치기'에서 확인하고 저장하면 유예 기간 뒤 정리돼요"]
         return CleanupPreview(plan: plan, digests: Array(sampleDigests.prefix(2)), consentNeeded: true)
     }
 

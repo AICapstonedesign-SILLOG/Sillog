@@ -222,6 +222,7 @@ struct CleanupPreviewSheet: View {
                 VStack(alignment: .leading, spacing: 10) {
                     if preview.plan.isEmpty {
                         Text("지금 지울 원문이 없어요. 요약은 최신으로 만들었어요.").font(Brand.suit(13)).foregroundStyle(Brand.text)
+                        ForEach(preview.plan.keptReasons, id: \.self) { Text($0).font(Brand.suit(12)).foregroundStyle(Brand.gray) }
                         if let reason = preview.plan.blockedReason { Text(reason).font(Brand.suit(12)).foregroundStyle(Brand.gray) }
                     } else {
                         Text("\(preview.plan.firstDay ?? "") ~ \(preview.plan.lastDay ?? "") · \(preview.plan.days.count)일")
@@ -234,6 +235,7 @@ struct CleanupPreviewSheet: View {
                             }
                         }
                         Text("돌려받을 공간 약 \(StorageSettingsView.size(preview.plan.estimatedBytes))").font(Brand.suit(12, .medium)).foregroundStyle(Brand.ink).padding(.top, 4)
+                        ForEach(preview.plan.keptReasons, id: \.self) { Text($0).font(Brand.suit(11)).foregroundStyle(Brand.gray) }
                         if let reason = preview.plan.blockedReason {
                             Text("그 뒤 기간은 아직이에요: \(reason)").font(Brand.suit(11)).foregroundStyle(Brand.gray)
                         }

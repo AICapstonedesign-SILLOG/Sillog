@@ -41,6 +41,9 @@ public struct PrunePlan: Equatable, Sendable {
     public var estimatedBytes: Int64 = 0
     /// 더 지우지 못하게 막은 이유 (가장 오래된 것 하나)
     public var blockedReason: String?
+    /// 요약이 검증을 통과하지 못해 원문을 남기고 건너뛴 주(ISO 주)와 그 이유. 그 뒤 날짜는 계속 정리한다
+    public var keptWeeks: [String] = []
+    public var keptReasons: [String] = []
     /// 첫 정리 동의가 아직 없다
     public var consentNeeded = false
     public init() {}
@@ -69,8 +72,18 @@ public enum PruneError: Error, Equatable, CustomStringConvertible {
 }
 
 /// 원문 정리. 하루 D 의 원문은 그 주의 다이제스트가 활동한 모든 업무에 대해 검증(또는 수정)되고,
-/// 검증 뒤 유예 기간이 지났고, 사용자가 첫 정리에 동의했을 때만 지운다. 지우기 전에 그날 사용 시간 기록을 동결한다
+/// 검증 뒤 유예 기간이 지났고, 사용자가 첫 정리에 동의했을 때만 지운다. 지우기 전에 그날 사용 시간 기록을 동결한다.
+/// 아직 준비되지 않은 주에서는 멈추고, 요약이 검증을 통과하지 못한 주는 원문을 남긴 채 건너뛴다(핀이 걸린 날처럼)
 public struct Pruner {
+    /// 주의 다이제스트가 원문을 대신할 준비가 됐는지
+    enum WeekState: Equatable {
+        case ready
+        /// 아직 아님: 이 주와 그 뒤 날짜를 기다린다
+        case wait(String)
+        /// 요약이 검증을 통과하지 못함: 이 주 원문은 남기고 다음 주로 넘어간다
+        case keep(String)
+    }
+
     public let db: WGDatabase
     public let ledger: LedgerBuilder
     /// 기간을 닫기 전에 기다리는 시간 (늦게 도착하는 배치와 사용자 수정)
@@ -106,8 +119,8 @@ public struct Pruner {
         }
         guard let earliest, earliest < latestCutoff else { return plan }
 
-        var weekCheck: [String: String?] = [:]           // 주 → 막는 이유 (nil 이면 통과)
-        for day in calendar.days(from: earliest, to: latestCutoff) {
+        var weekStates: [String: WeekState] = [:]
+        days: for day in calendar.days(from: earliest, to: latestCutoff) {
             guard let start = calendar.dayStart(day), let end = calendar.dayEnd(day) else { continue }
             var categories: [PruneCategory] = []
             for (category, cutoff) in cutoffs where end <= cutoff {
@@ -120,11 +133,17 @@ public struct Pruner {
                 continue
             }
             let week = calendar.week(containing: start)
-            if weekCheck[week.id] == nil { weekCheck[week.id] = .some(try blocker(week, conn, now: now, policy: policy)) }
-            if let reason = weekCheck[week.id] ?? nil {
+            if weekStates[week.id] == nil { weekStates[week.id] = try state(week, conn, now: now, policy: policy) }
+            switch weekStates[week.id] ?? .ready {
+            case .ready: break
+            case .keep(let reason):
+                for category in categories { plan.counts[category, default: 0] -= try self.count(category, conn, start: start, end: end, pinnedTasks: pinnedTasks) }
+                if !plan.keptWeeks.contains(week.id) { plan.keptWeeks.append(week.id); plan.keptReasons.append(reason) }
+                continue days
+            case .wait(let reason):
                 for category in categories { plan.counts[category, default: 0] -= try self.count(category, conn, start: start, end: end, pinnedTasks: pinnedTasks) }
                 plan.blockedReason = reason
-                break
+                break days
             }
             plan.days.append(.init(day: day, categories: categories.sorted { $0.rawValue < $1.rawValue }))
             plan.estimatedBytes += try estimate(categories, conn, start: start, end: end, pinnedTasks: pinnedTasks)
@@ -133,23 +152,26 @@ public struct Pruner {
         return plan
     }
 
-    /// 주의 다이제스트가 원문을 대신할 준비가 됐는지. 안 됐으면 이유
-    func blocker(_ week: PeriodCalendar.Period, _ conn: Database, now: Double, policy: RetentionPolicy) throws -> String? {
-        if now < week.end + Self.closeDelay { return "\(week.id) 주가 아직 닫히지 않았어요" }
+    /// 주의 다이제스트가 원문을 대신할 준비가 됐는지. 검증에 실패한 요약이 하나라도 있으면 그 주는 남기고 건너뛴다
+    func state(_ week: PeriodCalendar.Period, _ conn: Database, now: Double, policy: RetentionPolicy) throws -> WeekState {
+        if now < week.end + Self.closeDelay { return .wait("\(week.id) 주가 아직 닫히지 않았어요") }
         let active = try DigestInput.activeTasks(conn, period: week, ledger: ledger)
         let digests = try DigestStore.byTask(conn, level: .week, period: week.id)
-        var verifiedAt: [Double] = []
+        var verifiedAt: [Double] = [], failed: [String] = [], waiting: String?
         for key in active {
-            guard let digest = digests[key] else { return "\(week.id) 주의 요약을 아직 만들지 않았어요" }
-            guard digest.status != .draft, let at = digest.verifiedAt else {
-                guard digest.attempts >= DigestBuilder.maxAttempts else { return "\(week.id) 주의 요약이 아직 초안이에요" }
-                let title = try String.fetchOne(conn, sql: "SELECT title FROM nodes WHERE label = 'Task' AND key = ?", arguments: [key]) ?? key
-                return "\(week.id) 주 '\(title.prefix(30))' 요약이 검증을 통과하지 못해 원문을 남겨 뒀어요. 업무 탭 요약의 '고치기'에서 확인하고 저장하면 유예 기간 뒤 정리돼요"
-            }
-            verifiedAt.append(at)
+            guard let digest = digests[key] else { waiting = waiting ?? "\(week.id) 주의 요약을 아직 만들지 않았어요"; continue }
+            if digest.status != .draft, let at = digest.verifiedAt { verifiedAt.append(at) }
+            else if digest.status == .draft, digest.attempts >= DigestBuilder.maxAttempts { failed.append(key) }
+            else { waiting = waiting ?? "\(week.id) 주의 요약이 아직 초안이에요" }
         }
+        if let key = failed.first {
+            let title = try String.fetchOne(conn, sql: "SELECT title FROM nodes WHERE label = 'Task' AND key = ?", arguments: [key]) ?? key
+            let others = failed.count > 1 ? " 외 \(failed.count - 1)개" : ""
+            return .keep("\(week.id) 주 '\(title.prefix(30))'\(others) 요약이 검증을 통과하지 못해 이 주 원문은 남겨 뒀어요. 업무 탭 요약의 '고치기'에서 확인하고 저장하면 유예 기간 뒤 정리돼요")
+        }
+        if let waiting { return .wait(waiting) }
         let ready = (verifiedAt.max() ?? week.end + Self.closeDelay) + Double(policy.graceDays) * 86_400
-        return now < ready ? "\(week.id) 주는 요약 확인 뒤 유예 기간(\(policy.graceDays)일) 중이에요" : nil
+        return now < ready ? .wait("\(week.id) 주는 요약 확인 뒤 유예 기간(\(policy.graceDays)일) 중이에요") : .ready
     }
 
     // MARK: 실행
@@ -175,7 +197,8 @@ public struct Pruner {
                 let sealed = (try ConsolidationStore.value(ConsolidationStore.Key.sealedUntil, conn)).map { $0 >= item.day } ?? false
                 var counts: [PruneCategory: Int] = [:]
                 for category in item.categories {
-                    counts[category] = try prune(category, conn, start: start, end: end, pinnedTasks: pinned, sealed: sealed, pins: pins)
+                    counts[category] = try prune(category, conn, start: start, end: end, pinnedTasks: pinned, sealed: sealed, pins: pins,
+                                                 keptWeeks: Set(plan.keptWeeks))
                     try ConsolidationStore.advance(category.stateKey, to: item.day, conn)
                 }
                 return counts
@@ -188,8 +211,9 @@ public struct Pruner {
         return result
     }
 
-    /// 그날 그 항목을 지운다. 참조하는 쪽을 먼저 비우고 지운다 (외래 키)
-    func prune(_ category: PruneCategory, _ conn: Database, start: Double, end: Double, pinnedTasks: [Int64], sealed: Bool, pins: [RetentionPin]) throws -> Int {
+    /// 그날 그 항목을 지운다. 참조하는 쪽을 먼저 비우고 지운다 (외래 키). keptWeeks 는 원문을 남기고 건너뛴 주다
+    func prune(_ category: PruneCategory, _ conn: Database, start: Double, end: Double, pinnedTasks: [Int64], sealed: Bool, pins: [RetentionPin],
+               keptWeeks: Set<String> = []) throws -> Int {
         let keep = Self.notPinned("task_id", pinnedTasks)
         switch category {
         case .screenText:
@@ -211,9 +235,10 @@ public struct Pruner {
             try conn.execute(sql: "DELETE FROM observations WHERE \(filter)", arguments: [start, end])
             let deleted = conn.changesCount
             _ = try deleteUnreferencedTexts(texts, conn)
-            // 그날 끝난 유휴 구간 (기간 핀이 걸린 날에 시작한 것은 남긴다)
+            // 그날 끝난 유휴 구간 (기간 핀이 걸린 날이나 원문을 남긴 주에 시작한 것은 남긴다)
             for span in try IdleSpan.fetchAll(conn, sql: "SELECT * FROM idle_spans WHERE COALESCE(end_ts, start_ts) >= ? AND COALESCE(end_ts, start_ts) < ?", arguments: [start, end]) {
-                guard let id = span.id, !pins.contains(where: { $0.covers(day: calendar.day(span.startTs)) }) else { continue }
+                guard let id = span.id, !pins.contains(where: { $0.covers(day: calendar.day(span.startTs)) }),
+                      !keptWeeks.contains(calendar.week(containing: span.startTs).id) else { continue }
                 try conn.execute(sql: "DELETE FROM idle_spans WHERE id = ?", arguments: [id])
             }
             return deleted

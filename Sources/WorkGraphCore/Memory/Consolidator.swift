@@ -137,6 +137,7 @@ public actor Consolidator {
                         if let note = reclaimed.note { report.notes.append(note) }
                     }
                 }
+                report.notes += plan.keptReasons
                 if let reason = plan.blockedReason { report.notes.append(reason) }
             } catch {
                 report.notes.append("원문 정리 실패: \(error)")

@@ -1283,6 +1283,7 @@ do {
                 for (category, count) in plan.counts.sorted(by: { $0.key.rawValue < $1.key.rawValue }) { print("  \(category.item.title): \(count)건") }
                 print("예상 회수: 약 \(ByteCountFormatter.string(fromByteCount: plan.estimatedBytes, countStyle: .file))")
             }
+            for reason in plan.keptReasons { print("원문을 남기고 건너뛴 주: \(reason)") }
             if let reason = plan.blockedReason { print("멈춘 이유: \(reason)") }
             if plan.consentNeeded { print("첫 정리 동의가 아직 없습니다. 실제로 지우려면 consolidate --consent") }
         } else {

@@ -8,7 +8,7 @@
 
 **Tech Stack:** 기존과 동일하다. GRDB 7, SQLite FTS5(trigram), 정리용 LLM(OpenAI 호환·Codex).
 
-**관련 문서:** `docs/superpowers/specs/2026-09-21-workgraph-collector-ontology-design.md`, `docs/superpowers/specs/2026-09-23-screen-memory-cards-design.md`, `docs/prompts/chat-system-prompt.md`
+**관련 문서:** `docs/superpowers/specs/2026-09-21-workgraph-collector-ontology-design.md`, `docs/superpowers/specs/2026-09-23-screen-memory-cards-design.md`, `Sources/WorkGraphCore/Chat/Prompts/chat-system-prompt.md`
 
 ---
 
@@ -292,6 +292,8 @@ ALTER TABLE batches ADD COLUMN system_prompt_hash TEXT;
 
 **핀 처리:** 핀이 걸린 업무의 관측과 텍스트는 남기고 나머지만 지운다. 핀이 걸린 기간은 통째로 건너뛴다.
 
+**기다림과 건너뛰기:** 아직 준비되지 않은 주(닫히지 않음, 요약 생성·재시도 중, 유예 중)를 만나면 그 주와 뒤 날짜는 다음 실행을 기다린다. 요약이 같은 입력으로 세 번 검증을 통과하지 못한 주는 원문을 남긴 채 건너뛰고 뒤 주는 계속 정리한다. 사용자가 그 요약을 고쳐 저장하면(`edited`) 유예 기간 뒤 정리한다.
+
 ### 6.2 삭제 순서 (하루 단위 트랜잭션)
 
 1. **사용 시간 기록 동결:** D의 사용 시간 기록 행을 `frozen = 1`로 바꾼다.
@@ -343,7 +345,7 @@ ALTER TABLE batches ADD COLUMN system_prompt_hash TEXT;
 - 사용 시간 기록으로 기간·업무별 시간, 자료 상위, 앱 분포를 결정적으로 계산하고, 문제와 할 일의 변화는 그래프에서 계산한다.
 - 보고서 프롬프트 개선 때 필요하다고 정리한 기간 집계 도구와 같은 것이다. 원문이 있는 기간이든 없는 기간이든 같은 수치를 돌려준다.
 
-### 7.3 시스템 프롬프트 초안 (`docs/prompts/chat-system-prompt.md`) 수정
+### 7.3 채팅 시스템 프롬프트 (`Sources/WorkGraphCore/Chat/Prompts/chat-system-prompt.md`) 수정
 
 | 섹션 | 수정 |
 |---|---|
@@ -384,6 +386,7 @@ ALTER TABLE batches ADD COLUMN system_prompt_hash TEXT;
 |---|---|
 | 주말 내내 앱이 꺼져 있었음 | 다음 실행 때 밀린 기간을 순서대로 처리한다(실행당 2주 상한) |
 | LLM 실패·로그인 만료 | 결정적 다이제스트로 대체하고 `draft`로 둔다. 원문은 지우지 않고 다음 실행에서 재시도한다 |
+| 서술이 검증을 계속 통과하지 못함 | 같은 입력으로 세 번 실패하면 더 부르지 않고 결정적 다이제스트를 `draft`로 둔다. 그 주 원문은 남기고 건너뛰며, 입력이나 프롬프트 버전이 바뀌면 다시 시도한다 |
 | 정리 배치가 밀려 있음 | 기간을 닫지 않는다 |
 | 시간대 변경·서머타임 | 기간은 생성 시점의 현지 날짜 문자열과 `tz`로 저장한다. 사용 시간 기록의 `day`도 현지 날짜다 |
 | 업무 이름 변경·병합 | 원문이 남은 기간은 재생성하고, 정리된 기간은 key만 바꾼다 |
@@ -431,21 +434,21 @@ Tests/WorkGraphCoreTests/
 
 ### Phase 0. 측정과 가시화
 
-- [ ] `StorageUsage`: 범주별 바이트를 계산한다. 앱이 링크한 SQLite에 `dbstat`이 있는지 먼저 확인하고, 없으면 `SUM(LENGTH())`와 페이지 수로 추정한다.
-- [ ] `wgctl storage`: 범주별 크기, 최근 30일 일평균 증가량, 빈 페이지 수를 출력한다.
-- [ ] 설정에 저장 공간 섹션을 추가한다(읽기 전용).
-- [ ] 스크린샷 삭제 시 끊긴 경로를 `NULL`로 바꾼다(현행 버그).
-- [ ] 테스트: 범주 합계가 파일 크기와 오차 범위 안에서 일치, 경로 정리.
+- [x] `StorageUsage`: 범주별 바이트를 계산한다. 앱이 링크한 SQLite에 `dbstat`이 있는지 먼저 확인하고, 없으면 `SUM(LENGTH())`와 페이지 수로 추정한다.
+- [x] `wgctl storage`: 범주별 크기, 최근 30일 일평균 증가량, 빈 페이지 수를 출력한다.
+- [x] 설정에 저장 공간 섹션을 추가한다(읽기 전용).
+- [x] 스크린샷 삭제 시 끊긴 경로를 `NULL`로 바꾼다(현행 버그).
+- [x] 테스트: 범주 합계가 파일 크기와 오차 범위 안에서 일치, 경로 정리.
 - **검증:** `swift run wgctl storage`의 출력이 1.3의 실측과 일치한다.
 
 ### Phase 1. 사용 시간 기록과 배치 로그 경량화
 
-- [ ] 마이그레이션 `v15-consolidation`: `usage_ledger`, `consolidation_state`, `retention_pins`, `prompt_blobs`, `batches.system_prompt_hash`
-- [ ] `ActivityTally`를 분리하고 `GraphRebuilder`가 사용하게 한다.
-- [ ] `LedgerBuilder`: 일 단위 멱등 갱신, `frozen` 존중
-- [ ] `OntologyBatcher`가 시스템 프롬프트를 해시로 저장하게 하고, 기존 행을 이관한다. 활동 로그 화면 조회도 수정한다.
-- [ ] `summarize_period` 도구를 추가한다(ChatTools, 도구 설명, 표시 이름).
-- [ ] 테스트
+- [x] 마이그레이션 `v15-consolidation`: `usage_ledger`, `consolidation_state`, `retention_pins`, `prompt_blobs`, `batches.system_prompt_hash`
+- [x] `ActivityTally`를 분리하고 `GraphRebuilder`가 사용하게 한다.
+- [x] `LedgerBuilder`: 일 단위 멱등 갱신, `frozen` 존중
+- [x] `OntologyBatcher`가 시스템 프롬프트를 해시로 저장하게 하고, 기존 행을 이관한다. 활동 로그 화면 조회도 수정한다.
+- [x] `summarize_period` 도구를 추가한다(ChatTools, 도구 설명, 표시 이름).
+- [x] 테스트
   - 같은 입력에서 사용 시간 기록 업무 합계 = 세션 `active_seconds` 합계
   - 같은 날을 두 번 갱신해도 결과가 같음
   - 자정·시간대 경계
@@ -454,13 +457,13 @@ Tests/WorkGraphCoreTests/
 
 ### Phase 2. 다이제스트
 
-- [ ] 마이그레이션: `digests`, `digests_fts`와 트리거
-- [ ] `DigestInput`, `DigestPrompt`, `DigestBuilder`(주·월), 렌더러
-- [ ] `DigestValidator`
-- [ ] `Consolidator`: 트리거, 기간 닫힘 조건, 처리량 상한, 결정적 대체
-- [ ] `ContextSearch`와 `read_context`에 `digest:` 출처를 추가하고, 접근 필터와 출처 칩 접두어를 반영한다.
-- [ ] 시스템 프롬프트 초안 수정(7.3)
-- [ ] 테스트
+- [x] 마이그레이션: `digests`, `digests_fts`와 트리거
+- [x] `DigestInput`, `DigestPrompt`, `DigestBuilder`(주·월), 렌더러
+- [x] `DigestValidator`
+- [x] `Consolidator`: 트리거, 기간 닫힘 조건, 처리량 상한, 결정적 대체
+- [x] `ContextSearch`와 `read_context`에 `digest:` 출처를 추가하고, 접근 필터와 출처 칩 접두어를 반영한다.
+- [x] 시스템 프롬프트 초안 수정(7.3)
+- [x] 테스트
   - 검증기가 거부하는 경우: 없는 숫자, 없는 앵커, 근거 없는 `evidenced`, 길이 초과
   - 기간 닫힘 조건 세 가지
   - 프로젝트 전용 격리
@@ -470,12 +473,12 @@ Tests/WorkGraphCoreTests/
 
 ### Phase 3. 정리 엔진
 
-- [ ] `RetentionPolicy`(프리셋, 항목별 일수), 핀
-- [ ] `Pruner.plan`, `execute`, `reclaimSpace`
-- [ ] `GraphRebuilder`의 `sealed_until` 보호와 업무 시간 합산 방식 변경
-- [ ] `auto_vacuum` 전환(1회 `VACUUM`, 디스크 여유 확인), `incremental_vacuum`, FTS `optimize`, WAL `TRUNCATE`
-- [ ] `wgctl consolidate [--dry-run]`
-- [ ] 테스트
+- [x] `RetentionPolicy`(프리셋, 항목별 일수), 핀
+- [x] `Pruner.plan`, `execute`, `reclaimSpace`
+- [x] `GraphRebuilder`의 `sealed_until` 보호와 업무 시간 합산 방식 변경
+- [x] `auto_vacuum` 전환(1회 `VACUUM`, 디스크 여유 확인), `incremental_vacuum`, FTS `optimize`, WAL `TRUNCATE`
+- [x] `wgctl consolidate [--dry-run]`
+- [x] 테스트
   - 다이제스트가 `draft`인 기간은 삭제 안 함
   - 유예 7일
   - 핀(업무·기간)
@@ -487,16 +490,16 @@ Tests/WorkGraphCoreTests/
 
 ### Phase 4. UI
 
-- [ ] `StorageSettingsView`: 사용량, 프리셋, 고급, 미리보기, 첫 동의 시트
-- [ ] 업무 화면 요약 탭, 편집
-- [ ] 핀 UI(업무 상세, 활동 로그)
-- [ ] README 개인정보·보관 기간 문구
+- [x] `StorageSettingsView`: 사용량, 프리셋, 고급, 미리보기, 첫 동의 시트
+- [x] 업무 화면 요약 탭, 편집
+- [x] 핀 UI(업무 상세, 활동 로그)
+- [x] README 개인정보·보관 기간 문구
 
 ### Phase 5. 평가와 출시
 
 - [ ] **요약 충실도:** `docs/eval`의 세 페르소나 데이터로, 원문으로 답할 수 있는 질문 20개를 요약만으로 답하게 하고 정답률을 잰다. 시간·건수 질문은 100% 일치해야 통과다.
 - [ ] **보고서 품질:** 같은 기간 주간 보고서를 원문 기반과 요약 기반으로 만들어 비교한다. 채점 기준은 보고서 프롬프트 평가표를 쓴다.
-- [ ] **기존 사용자 이관:** 첫 실행에서는 밀린 기간의 요약만 만들고, 삭제는 동의 뒤에 한다.
+- [x] **기존 사용자 이관:** 첫 실행에서는 밀린 기간의 요약만 만들고, 삭제는 동의 뒤에 한다.
 - [ ] **출시 후 측정:** 2주 사용 뒤 DB 크기 추이와 다이제스트 토큰 사용량을 확인한다.
 
 ---
@@ -533,3 +536,20 @@ Tests/WorkGraphCoreTests/
 | 원문을 계속 남기고 싶은 사용자 | — | "원문 무기한" 프리셋 |
 | 앱 내 재구성 기능 | 현재는 `wgctl`에만 있다 | 앱에 넣기 전에 6.3 보호가 필수 |
 | 채팅·보관함 용량 | 사용자 자료라 자동 정리 대상이 아니다 | 저장 공간 화면에 크기만 표시하고 수동 정리 |
+
+---
+
+## 15. 구현 메모 (2026-10-07)
+
+**계획과 다르게 한 것**
+- `DigestValidator`는 따로 두지 않고 `DigestPrompt.swift`에 있다. 재구성 보호 테스트는 `PrunerTests`에 있다.
+- 배치 로그의 `llm_patch`는 14일에 지우지 않고 그날을 봉인(`sealed_until`)할 때 지운다. 재구성할 때 세션 요약을 되찾는 데 쓰기 때문이다.
+- 요약이 검증을 통과하지 못한 주는 원문을 남기고 건너뛴다(6.1). 그 주에서 시작한 유휴 구간도 남긴다.
+- 7.3은 `raw_records_since`를 `<runtime_context>`에 넣고, 출처 ID 목록에 `digest:`와 `usage:`를 더했다.
+
+**아직 하지 않은 것**
+- Phase 5의 요약 충실도·보고서 품질 평가와 출시 후 측정
+- 6.5 원문 내보내기
+- 매 정리 뒤 결과 알림(14의 제안). 지금은 설정 > 저장 공간에 마지막 실행 결과를 보여 준다.
+- 파일 이벤트를 대신할 그래프 File 노드(3의 표). 스키마에는 있지만 만드는 코드가 없어서, 파일 이벤트를 지우면 주간 요약에 남은 파일 정보만 남는다.
+- 다이제스트 입력에 Sillog 대화의 결정과 AI 요청·커밋 짝 넣기
