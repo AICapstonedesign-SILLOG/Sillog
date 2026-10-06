@@ -275,10 +275,7 @@ struct ChatView: View {
                     }.help("프로젝트의 채팅과 소스 보기")
                 }
                 if !modelName.isEmpty {
-                    Button(action: openSettings) {
-                        HStack(spacing: 4) { Text(modelName); Image(systemName: "chevron.down").font(.system(size: 8)) }
-                            .font(Brand.suit(10)).foregroundStyle(Brand.gray)
-                    }.help("채팅 모델 설정")
+                    ChatModelMenu(name: modelName, fontSize: 10, openSettings: openSettings)
                 }
             }
             Spacer()
@@ -506,10 +503,7 @@ struct ChatView: View {
                         .frame(height: inputHeight)
                 }
                 if isProjectHome, !modelName.isEmpty {
-                    Button(action: openSettings) {
-                        HStack(spacing: 5) { Text(modelName).lineLimit(1); Image(systemName: "chevron.down").font(.system(size: 9)) }
-                            .font(Brand.suit(11)).foregroundStyle(Brand.gray)
-                    }.buttonStyle(.plain).frame(maxWidth: 135).help("채팅 모델 설정")
+                    ChatModelMenu(name: modelName, fontSize: 11, openSettings: openSettings).frame(maxWidth: 135)
                 }
                 sendButton.padding(.bottom, 4)
             }.padding(.horizontal, 14).padding(.vertical, 6)

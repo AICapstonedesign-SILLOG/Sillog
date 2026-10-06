@@ -1,10 +1,11 @@
 import SwiftUI
 import WorkGraphCore
 
-/// 업무 탭: 왼쪽 업무 목록, 오른쪽 업무 상세(세션 목록과 다시 열기). Figma 참고 TK-01, TK-02, TK-W1
+/// 업무 탭: 왼쪽 업무 트리(분야 폴더 안에 업무), 오른쪽 업무 상세(세션 목록과 다시 열기). Figma 참고 TK-01, TK-02, TK-W1
 struct TasksView: View {
     @EnvironmentObject private var state: AppState
     @State private var selectedTask: Int64?
+    @State private var collapsed: Set<String> = []          // 접은 분야 폴더
     @State private var sessions: [SessionSummary] = []
 
     private static let day: DateFormatter = {
@@ -40,7 +41,32 @@ struct TasksView: View {
         .onChange(of: state.graphVersion) { _, _ in state.refreshTasks(); reload() }
     }
 
-    // MARK: 왼쪽 목록
+    // MARK: 왼쪽 목록 (분야 폴더 안에 업무, 파일 트리처럼)
+
+    struct TaskFolder: Identifiable, Equatable {
+        let name: String
+        let tasks: [TaskSummary]
+        var id: String { name }
+        var seconds: Double { tasks.reduce(0) { $0 + $1.activeSeconds } }
+    }
+
+    static let noField = "분야 없음"
+
+    /// 분야별 폴더: 최근에 일한 분야가 위, '분야 없음' 은 늘 맨 아래. 폴더 안은 받은 순서(최근 활동 순) 그대로
+    static func folders(_ tasks: [TaskSummary]) -> [TaskFolder] {
+        var order: [String] = [], groups: [String: [TaskSummary]] = [:]
+        for task in tasks {
+            let name = task.theme ?? noField
+            if groups[name] == nil { order.append(name) }
+            groups[name, default: []].append(task)
+        }
+        let latest = { (name: String) in groups[name]?.map(\.lastActive).max() ?? 0 }
+        return order.sorted { a, b in
+            if (a == noField) != (b == noField) { return b == noField }
+            return latest(a) > latest(b)
+        }
+        .map { TaskFolder(name: $0, tasks: groups[$0] ?? []) }
+    }
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -60,10 +86,15 @@ struct TasksView: View {
                 Spacer()
             } else {
                 ScrollView {
-                    VStack(spacing: 4) {
-                        ForEach(state.taskList) { task in taskRow(task) }
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(Self.folders(state.taskList)) { folder in
+                            folderRow(folder)
+                            if !collapsed.contains(folder.name) {
+                                ForEach(folder.tasks) { task in taskRow(task) }
+                            }
+                        }
                     }
-                    .padding(.horizontal, 12)
+                    .padding(.horizontal, 12).padding(.bottom, 12)
                 }
             }
             Rectangle().fill(Brand.hairline).frame(height: 1)
@@ -77,32 +108,50 @@ struct TasksView: View {
         .overlay(alignment: .trailing) { Rectangle().fill(Brand.hairline).frame(width: 1) }
     }
 
+    /// 폴더 줄: 펼침 화살표, 폴더, 분야 이름, 업무 수. 누르면 접고 펼친다
+    private func folderRow(_ folder: TaskFolder) -> some View {
+        let open = !collapsed.contains(folder.name)
+        return Button {
+            if open { collapsed.insert(folder.name) } else { collapsed.remove(folder.name) }
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(Brand.gray)
+                    .rotationEffect(.degrees(open ? 90 : 0)).frame(width: 10)
+                Image(systemName: "folder").font(.system(size: 12)).foregroundStyle(Brand.tabText).frame(width: 16)
+                Text(folder.name).font(Brand.suit(12, .medium)).foregroundStyle(Brand.ink).lineLimit(1)
+                Spacer(minLength: 6)
+                Text("\(folder.tasks.count)").font(.custom("Jost-Light", size: 13)).foregroundStyle(Brand.gray)
+            }
+            .padding(.horizontal, 8).frame(height: 30)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(folder.name) 분야, 업무 \(folder.tasks.count)개, \(open ? "펼침" : "접힘")")
+        .padding(.top, 6)
+    }
+
+    /// 업무 줄: 폴더 안으로 들여 문서처럼. 제목과 작업 시간, 아래에 작은 종류 (세션 수·마지막 활동은 오른쪽 상세에)
     private func taskRow(_ task: TaskSummary) -> some View {
         let on = task.id == selectedTask
         return Button { selectedTask = task.id } label: {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Spacer()
-                    Text(task.taskType ?? "").font(Brand.suit(9)).foregroundStyle(Brand.gray)
+            HStack(alignment: .top, spacing: 7) {
+                Image(systemName: "doc.text").font(.system(size: 11)).foregroundStyle(on ? Brand.ink : Brand.gray)
+                    .frame(width: 16).padding(.top, 1)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(task.title).font(Brand.suit(12)).foregroundStyle(Brand.ink).lineLimit(1)
+                        Spacer(minLength: 4)
+                        Text(Self.duration(task.activeSeconds)).font(Brand.suit(10)).foregroundStyle(Brand.tabText).fixedSize()
+                    }
+                    if let type = task.taskType { Text(type).font(Brand.suit(9)).foregroundStyle(Brand.gray) }
+                    if let projects = state.chat?.projects { ProjectAssignmentLabel(projects: projects, itemID: "task:\(task.id)") }
                 }
-                .frame(height: 14)
-                Text(task.title).font(Brand.suit(13)).foregroundStyle(Brand.ink).lineLimit(1).padding(.top, 7)
-                if let projects = state.chat?.projects { ProjectAssignmentLabel(projects: projects, itemID: "task:\(task.id)") }
-                HStack(spacing: 0) {
-                    Text(Self.duration(task.activeSeconds) + " ")
-                    Text("/").foregroundStyle(Brand.sub)
-                    Text(" 세션 \(task.sessionCount)개")
-                    Spacer()
-                    if on { Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(Brand.gray) }
-                }
-                .font(Brand.suit(10)).foregroundStyle(Brand.tabText).padding(.top, 8)
-                Text(Self.lastActive(task.lastActive)).font(Brand.suit(9)).foregroundStyle(Brand.gray).padding(.top, 8)
             }
-            .padding(.horizontal, 13).padding(.vertical, 14)
+            .padding(.leading, 25).padding(.trailing, 10).padding(.vertical, 8)          // 폴더 아이콘 아래로 들여쓰기
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(on ? RoundedRectangle(cornerRadius: 5).fill(.white.opacity(0.64)) : nil)
             .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(on ? Brand.hairline : .clear))
-            .overlay(alignment: .leading) { if on { Rectangle().fill(Brand.ink).frame(width: 2).padding(.vertical, 14) } }
+            .overlay(alignment: .leading) { if on { Rectangle().fill(Brand.ink).frame(width: 2).padding(.vertical, 8) } }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
