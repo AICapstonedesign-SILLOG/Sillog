@@ -152,6 +152,7 @@ public struct ChatRunner: Sendable {
         let procedures = try (selected.isEmpty ? skills : selected).map { "## \($0.title)\n\(try $0.instructions())" }.joined(separator: "\n\n")
         var prompt = ChatSystemPrompt(template: try ChatSystemPrompt.template(), scope: tools.scope, chatModel: backend.modelName,
                                       scheduled: scheduled, skillInstructions: procedures, project: project)
+        if tools.scope.useActivity { prompt.rawRecordsSince = (try? tools.search.rawRecordsSince()) ?? nil }
         let ledger = ChatRunLedger()
         let remembered = try tools.rememberedSources(history: history)
         if !remembered.isEmpty {

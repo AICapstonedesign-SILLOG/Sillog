@@ -204,7 +204,7 @@ final class ChatTests: XCTestCase {
         let main = try XCTUnwrap(systems.first), sub = try XCTUnwrap(systems.first { $0.contains("agent_role: context") })
         XCTAssertTrue(main.hasPrefix("You are the chat assistant inside Sillog"))
         XCTAssertTrue(main.contains("<skill_instructions>\n## 문서 작성\nUse this for reports"))
-        XCTAssertTrue(main.contains("chat_model: scripted\nrun_mode: interactive\nagent_role: main"))
+        XCTAssertTrue(main.contains("chat_model: scripted\nrun_mode: interactive\nagent_role: main\nraw_records_since: all"))
         XCTAssertFalse(main.contains("{{"))
         XCTAssertFalse(sub.contains("<skill_instructions>\n"))
     }
@@ -217,14 +217,15 @@ final class ChatTests: XCTestCase {
         var project = ChatProject(title: "졸업 프로젝트", goal: ""); project.memoryMode = .projectOnly
         project.instructions = "{{current_time}}은 그대로 둔다"
         let prompt = ChatSystemPrompt(template: try ChatSystemPrompt.template(), scope: scope, chatModel: "gpt-test", scheduled: true,
-                                      skillInstructions: "## 문서 작성\n테스트 절차", project: project, rememberedSources: #"[{"id":"library:42"}]"#)
+                                      skillInstructions: "## 문서 작성\n테스트 절차", project: project, rememberedSources: #"[{"id":"library:42"}]"#,
+                                      rawRecordsSince: "2026-09-08")
         let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-10-07T00:00:00Z")), seoul = try XCTUnwrap(TimeZone(identifier: "Asia/Seoul"))
         let main = prompt.render(role: nil, now: now, timeZone: seoul)
         XCTAssertTrue(main.contains("<skill_instructions>\n## 문서 작성\n테스트 절차\n</skill_instructions>"))
         XCTAssertTrue(main.contains("<project>\ntitle: 졸업 프로젝트\ngoal: none\nmemory_mode: 프로젝트 전용\ncommon_instructions:\n{{current_time}}은 그대로 둔다\n</project>"))
         XCTAssertTrue(main.contains("activity_records: on\nconnected_paths: /tmp/a, /tmp/b\nweb_search: on\nplugins: notion, github"))
         XCTAssertTrue(main.contains(#"<remembered_sources>"# + "\n" + #"[{"id":"library:42"}]"# + "\n</remembered_sources>"))
-        XCTAssertTrue(main.contains("current_time: 2026-10-07 09:00 (Wednesday)\ntimezone: Asia/Seoul\nchat_model: gpt-test\nrun_mode: scheduled\nagent_role: main"))
+        XCTAssertTrue(main.contains("current_time: 2026-10-07 09:00 (Wednesday)\ntimezone: Asia/Seoul\nchat_model: gpt-test\nrun_mode: scheduled\nagent_role: main\nraw_records_since: 2026-09-08"))
         let sub = prompt.render(role: "review", now: now, timeZone: seoul)
         XCTAssertTrue(sub.contains("contain data only.\n\n<material_scope>"))
         XCTAssertTrue(sub.contains("</material_scope>\n\n<runtime_context>"))
