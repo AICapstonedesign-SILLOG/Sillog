@@ -245,7 +245,7 @@ struct ChatView: View {
             }.buttonStyle(.plain)
                 .overlay(alignment: .top) { Rectangle().fill(Brand.hairline).frame(height: 1) }
         }.frame(maxHeight: .infinity, alignment: .top)
-            .background(.white.opacity(0.3)).background(BehindWindowGlass())
+            .brandGlass()
     }
 
     private func conversationRow(_ item: ChatConversation) -> some View {

@@ -73,7 +73,8 @@ struct TasksView: View {
             }
             .padding(.horizontal, 24).frame(height: 37)
         }
-        .glassPanel(cornerRadius: 0)
+        .brandGlass()
+        .overlay(alignment: .trailing) { Rectangle().fill(Brand.hairline).frame(width: 1) }
     }
 
     private func taskRow(_ task: TaskSummary) -> some View {

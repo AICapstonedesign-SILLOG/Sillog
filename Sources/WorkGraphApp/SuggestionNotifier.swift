@@ -45,9 +45,8 @@ final class SuggestionNotifier: NSObject, UNUserNotificationCenterDelegate, @unc
             }
             guard granted else { return }
             let content = UNMutableNotificationContent()
-            content.title = suggestion.fileName
-            content.body = "→ " + Self.short(suggestion.suggestedFolder, home: home)
-            if let reason = suggestion.reason, !reason.isEmpty { content.subtitle = reason }
+            content.title = FileSuggestionCopy.title
+            content.body = FileSuggestionCopy.body(fileName: suggestion.fileName, folder: suggestion.suggestedFolder, home: home)
             content.categoryIdentifier = Self.category
             content.userInfo = ["suggestionId": id]
             content.sound = .default
@@ -66,10 +65,6 @@ final class SuggestionNotifier: NSObject, UNUserNotificationCenterDelegate, @unc
     static func openSystemSettings() {
         let id = Bundle.main.bundleIdentifier ?? "com.capstone.workgraph"
         if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)") { NSWorkspace.shared.open(url) }
-    }
-
-    static func short(_ path: String, home: String) -> String {
-        path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
     }
 
     // MARK: UNUserNotificationCenterDelegate

@@ -1,8 +1,22 @@
 import AppKit
 import SwiftUI
 import WorkGraphCollectors
+import WorkGraphCore
 
+/// 시작점: 글꼴을 먼저 등록하고 SwiftUI 앱을 띄운다
 @main
+enum AppEntry {
+    static func main() {
+        // 개발용: 창 없이 상태별 화면을 PNG 로 그리고 끝난다 (SnapshotRunner)
+        if let directory = ProcessInfo.processInfo.environment["WORKGRAPH_SNAPSHOT"], !directory.isEmpty {
+            MainActor.assumeIsolated { SnapshotRunner.run(into: directory) }
+        }
+        let fonts = BrandFonts.register()
+        if fonts.count < 6 { AppLog.write("글꼴 \(fonts.count)/6개만 등록됨: \(fonts.sorted())") }
+        WorkGraphApp.main()
+    }
+}
+
 struct WorkGraphApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var state = AppState()
@@ -66,6 +80,12 @@ struct MenuBarLabel: View {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// 디자인(Figma)이 밝은 화면 전용이라 시스템이 다크 모드여도 앱은 밝게 그린다.
+    /// 다크 모드를 따르면 유리 재질이 회색이 되고 진한 글씨가 탁해진다 (메뉴, 창, 웹 그래프 모두)
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSApp.appearance = NSAppearance(named: .aqua)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let event = NSAppleEventManager.shared().currentAppleEvent
         Launch.asLoginItem = event?.eventID == kAEOpenApplication

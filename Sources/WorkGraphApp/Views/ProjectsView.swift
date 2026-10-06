@@ -247,7 +247,7 @@ struct ProjectEditor: View {
                 Button(project == nil ? "프로젝트 만들기" : "저장") { save() }
                     .buttonStyle(BrandButtonStyle(kind: .primary)).opacity(canSave ? 1 : 0.38).disabled(!canSave)
             }.padding(.horizontal, 24).frame(height: 63)
-                .background(.white.opacity(0.3)).background(BehindWindowGlass())
+                .brandGlass()
                 .overlay(alignment: .top) { Rectangle().fill(Brand.hairline).frame(height: 1) }
         }.frame(width: 560).background(.white)
     }
@@ -368,7 +368,7 @@ struct ProjectProposalsSheet: View {
                     if projects.checking { projects.stop() } else { projects.check() }
                 }.buttonStyle(BrandButtonStyle())
             }.padding(.horizontal, 24).frame(height: 63)
-                .background(.white.opacity(0.3)).background(BehindWindowGlass())
+                .brandGlass()
                 .overlay(alignment: .top) { Rectangle().fill(Brand.hairline).frame(height: 1) }
         }.frame(width: 600, height: projects.proposals.isEmpty ? 400 : 560)
             .background(.white)

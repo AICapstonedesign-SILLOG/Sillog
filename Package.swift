@@ -38,5 +38,10 @@ let package = Package(
             name: "WorkGraphCoreTests",
             dependencies: ["WorkGraphCore"]
         ),
+        // 앱 화면 동작 테스트: 미리보기 상태(AppState(preview:))로 화면 밖 창에 그려 본다. 실제 DB·실행 잠금은 쓰지 않는다
+        .testTarget(
+            name: "WorkGraphAppTests",
+            dependencies: ["WorkGraphApp", "WorkGraphCore"]
+        ),
     ]
 )

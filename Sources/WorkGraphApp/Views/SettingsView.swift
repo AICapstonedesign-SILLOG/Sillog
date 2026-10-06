@@ -103,8 +103,7 @@ struct SettingsView: View {
         }
         .frame(width: 234)
         .frame(maxHeight: .infinity)
-        .background(.white.opacity(0.3))
-        .background(BehindWindowGlass())
+        .brandGlass()
         .overlay(alignment: .trailing) { Rectangle().fill(Brand.hairline).frame(width: 1) }
     }
 

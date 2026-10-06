@@ -24,7 +24,7 @@ struct LibrarySheetHeader: View {
         }
         .padding(.horizontal, 27).padding(.top, 25).padding(.bottom, 20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.white.opacity(0.3)).background(BehindWindowGlass())
+        .brandGlass()
         .overlay(alignment: .bottom) { Rectangle().fill(Brand.hairline).frame(height: 1) }
     }
 }
@@ -103,7 +103,7 @@ struct LibraryView: View {
         }
         .padding(.horizontal, 12)
         .frame(width: 249).frame(maxHeight: .infinity)
-        .background(.white.opacity(0.3)).background(BehindWindowGlass())
+        .brandGlass()
     }
 
     private func filterRow(_ title: String, _ on: Bool, action: @escaping () -> Void) -> some View {
@@ -246,7 +246,7 @@ struct LibraryPicker: View {
                 Spacer()
                 Button("완료") { dismiss() }.buttonStyle(BrandButtonStyle(kind: .primary))
             }.padding(.horizontal, 24).frame(height: 63)
-                .background(.white.opacity(0.3)).background(BehindWindowGlass())
+                .brandGlass()
                 .overlay(alignment: .top) { Rectangle().fill(Brand.hairline).frame(height: 1) }
         }.frame(width: 600, height: 480).background(.white)
     }

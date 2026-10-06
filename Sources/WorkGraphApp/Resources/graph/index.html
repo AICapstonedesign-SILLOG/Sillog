@@ -543,7 +543,7 @@ button.theme-head:hover h2 { color: var(--text); }
 .cv-opt:hover, .cv-opt.act { background: rgba(36, 21, 15, 0.05); }
 .cv-opt[aria-selected="true"] { font-weight: 600; background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.7)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 1), inset 0 0 0 1px rgba(36, 21, 15, 0.06), 0 2px 8px rgba(36, 21, 15, 0.12); }
 .cv-opt[aria-selected="true"] svg { visibility: visible; }
-.cv-side { position: absolute; top: 10px; bottom: 10px; left: 10px; z-index: 3; width: 300px; padding: 14px; overflow-y: auto; font-size: 12px; line-height: 1.5; border-radius: 14px; background: rgba(255, 255, 255, 0.72); border: 1px solid rgba(255, 255, 255, 0.9); box-shadow: 0 10px 30px rgba(36, 21, 15, 0.12), inset 0 0 0 1px rgba(36, 21, 15, 0.04); backdrop-filter: blur(18px) saturate(1.4); -webkit-backdrop-filter: blur(18px) saturate(1.4); }
+.cv-side { position: absolute; top: 10px; bottom: 10px; left: 10px; z-index: 3; width: clamp(220px, 38%, 300px); padding: 14px; overflow-y: auto; font-size: 12px; line-height: 1.5; border-radius: 14px; background: rgba(255, 255, 255, 0.72); border: 1px solid rgba(255, 255, 255, 0.9); box-shadow: 0 10px 30px rgba(36, 21, 15, 0.12), inset 0 0 0 1px rgba(36, 21, 15, 0.04); backdrop-filter: blur(18px) saturate(1.4); -webkit-backdrop-filter: blur(18px) saturate(1.4); }
 .cv-side[hidden] { display: none; }
 .cv-sc { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
 .cv-side h2 { margin: 4px 0 2px; font-size: 15px; font-weight: 600; line-height: 1.4; }
@@ -567,9 +567,10 @@ button.theme-head:hover h2 { color: var(--text); }
 .cv-k li em, .cv-rel li em, .cv-ss li { font-style: normal; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .cv-k .more { padding-left: 13px; font-size: 11px; color: var(--muted); }
 .cv-ss li { padding: 1px 0; }
-.cvsa { position: sticky; bottom: -14px; z-index: 1; display: flex; gap: 6px; margin: 14px -14px -14px; padding: 10px 14px 14px; background: rgba(255, 255, 255, 0.85); border-top: 1px solid rgba(36, 21, 15, 0.08); }
+.cvsa { position: sticky; bottom: -14px; z-index: 1; display: flex; flex-wrap: wrap; gap: 6px; margin: 14px -14px -14px; padding: 10px 14px 14px; background: rgba(255, 255, 255, 0.85); border-top: 1px solid rgba(36, 21, 15, 0.08); }
 .cvsa button { flex: 1; padding: 5px 0; color: var(--text); background: rgba(255, 255, 255, 0.7); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
 .cvsa button:first-child { color: var(--canvas); background: var(--text); border-color: var(--text); }
+.cvsa .go { flex-basis: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }   /* 다시 열기: 한 줄 전체 */
 .cv-card { position: absolute; z-index: 4; pointer-events: none; width: 220px; padding: 10px 12px; font-size: 12px; line-height: 1.5; border-radius: 12px; background: rgba(255, 255, 255, 0.72); border: 1px solid rgba(255, 255, 255, 0.9); box-shadow: 0 10px 30px rgba(36, 21, 15, 0.12), inset 0 0 0 1px rgba(36, 21, 15, 0.04); backdrop-filter: blur(18px) saturate(1.4); -webkit-backdrop-filter: blur(18px) saturate(1.4); }
 .cv-card[hidden] { display: none; }
 .cv-card h3 { margin: 2px 0 4px; font-size: 13px; font-weight: 600; }
@@ -684,6 +685,7 @@ html, body { background: #fff; }
 #controls .legend button, .tdrop-pop .legend button { font-size: 12px; }
 #main { position: relative; inset: auto; flex: 1; min-width: 0; overflow: auto; padding: 18px 24px 32px; }
 #node { flex: none; width: 270px; padding: 24px; overflow-y: auto; background: #fff; border-left: 1px solid var(--line); }
+#node[hidden] { display: none; }
 #node .badge { display: inline-block; margin-top: 14px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 4px; font-size: 10px; color: var(--muted); }
 #node h2 { margin-top: 10px; font-size: 18px; font-weight: 700; line-height: 1.35; color: var(--text); word-break: keep-all; overflow-wrap: anywhere; }
 #node .ndesc { margin-top: 6px; font-size: 12px; line-height: 1.55; color: var(--muted); }
@@ -2381,17 +2383,18 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
       <header class="fhead">
         <h1>연결망</h1>
         <p class="fsum">업무 ${nodes.length}개, 세션 ${nodes.reduce((a, n) => a + n.ss.length, 0)}개, 자료 ${nodes.reduce((a, n) => a + n.own.length, 0) + shared.length}개</p>
-        <ul class="slegend"><li>큰 원 = 업무, 크기는 작업 시간</li><li>작은 점 = 작업 2분 또는 자료</li><li>끌어서 회전, Shift+끌기로 이동, 휠로 확대</li></ul>
+        <ul class="slegend"><li>큰 원 = 업무, 크기는 작업 시간</li><li>작은 점 = 작업 2분 또는 자료</li><li>끌어서 이동, Shift+끌기로 회전, 휠로 확대</li></ul>
         <div class="cv-dd"><button type="button" class="cv-ddb" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="cv-ddl" aria-label="업무 고르기"><span></span>${CHEV}</button><div class="cv-ddl" id="cv-ddl" role="listbox" aria-label="업무" hidden></div></div>
       </header>`;
     const svg = p => `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
     const IC = { in: svg('<path d="M5 12h14"/><path d="M12 5v14"/>'), out: svg('<path d="M5 12h14"/>'), fit: svg('<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>'),
       play: svg('<polygon points="6 3 20 12 6 21 6 3"/>'), pause: svg('<rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/>') };
     const btn = (a, label, ic) => `<button type="button" data-a="${a}" aria-label="${label}" title="${label}">${ic}</button>`;
-    $('main').innerHTML = head0 + `<div class="cvwrap"><canvas class="cvc" tabindex="0" aria-label="연결망, 끌어서 회전, 방향키로 이동, 더하기와 빼기로 확대와 축소, 스페이스로 재생과 멈춤"></canvas><div class="cvtip" hidden></div><aside class="cv-side" hidden></aside><div class="cv-card" hidden></div><div class="cvctl" role="group" aria-label="보기 조작">${btn('in', '확대', IC.in)}${btn('out', '축소', IC.out)}${btn('fit', '화면에 맞춤', IC.fit)}<button type="button" data-a="play"></button></div></div>`;
+    $('main').innerHTML = head0 + `<div class="cvwrap"><canvas class="cvc" tabindex="0" aria-label="연결망, 끌어서 이동, Shift+끌기로 회전, 방향키로 이동, 더하기와 빼기로 확대와 축소, 스페이스로 재생과 멈춤"></canvas><div class="cvtip" hidden></div><aside class="cv-side" hidden></aside><div class="cv-card" hidden></div><div class="cvctl" role="group" aria-label="보기 조작">${btn('in', '확대', IC.in)}${btn('out', '축소', IC.out)}${btn('fit', '화면에 맞춤', IC.fit)}<button type="button" data-a="play"></button></div></div>`;
     const wrap = $('main').querySelector('.cvwrap'), cv = wrap.querySelector('canvas'), tip = wrap.querySelector('.cvtip'), sum = wrap.querySelector('.cv-side'), card = wrap.querySelector('.cv-card'), ctl = wrap.querySelector('.cvctl'), ddb = $('main').querySelector('.cv-ddb'), ddl = $('main').querySelector('.cv-ddl'), dd = ddb.parentNode;
-    const W = Math.max(720, $('main').clientWidth - 48);
-    const H = Math.max(600, $('main').clientHeight - $('main').querySelector('.fhead').offsetHeight - 14 - 48 - 12);
+    // 창 크기를 그대로 따른다 (최소값이 크면 작은 창에서 그림과 왼쪽 업무 카드가 창 밖으로 잘린다). 창 크기가 바뀌면 resize 에서 다시 그린다
+    const W = Math.max(320, $('main').clientWidth - 48);
+    const H = Math.max(200, $('main').clientHeight - $('main').querySelector('.fhead').offsetHeight - 14 - 48 - 12);
     const themes = THEMES.filter(th => nodes.some(n => n.t.theme === th.id));
     const dirs = new Map(themes.map((th, i) => {
       const y = 1 - (i + 0.5) * 2 / themes.length, r = Math.sqrt(Math.max(0, 1 - y * y)), ph = i * 2.39996;
@@ -2635,7 +2638,7 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
         + ks.map(k => `<div class="cv-k"><div class="cv-kh">${dot(KINDS[k].color)}${KINDS[k].name}<b>${g[k].length}</b></div><ul>${g[k].slice(0, 3).map(it => `<li data-hk="${k}" data-hn="${esc(it.name)}"><span title="${esc(it.name)}">${esc(it.name)}</span>${it.n > 1 ? `<em>업무 ${it.n}개</em>` : ''}</li>`).join('')}</ul>${g[k].length > 3 ? `<div class="more">+${g[k].length - 3}</div>` : ''}</div>`).join('')
         + `<div class="cv-st">최근 세션</div><ul class="cv-ss">${n.ss.slice(-3).reverse().map(s => `<li>${md(s.d)} ${hm(s.start)}, ${fmt(s.end - s.start)}, ${esc(s.app)}</li>`).join('')}</ul>`
         + (rl.length ? `<div class="cv-st">함께 쓴 업무</div><ul class="cv-rel">${rl.slice(0, 6).map(([o, c]) => `<li data-ht="${o.t.id}">${dot(THEME[o.t.theme].color)}<span title="${esc(o.t.title)}">${esc(o.t.title)}</span><em>${c}개</em></li>`).join('')}</ul>` : '')
-        + '<div class="cvsa"><button type="button" data-a="detail">자세히</button><button type="button" data-a="all">전체 보기</button></div>';
+        + '<div class="cvsa"><button type="button" class="go" data-a="resume"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg> 다시 열기</button><button type="button" data-a="detail">자세히</button><button type="button" data-a="all">전체 보기</button></div>';
     };
     const cardOf = (n, mx, my) => {
       const th = THEME[n.t.theme], top = Object.values(cvItems(n)).flat().sort((x, y) => y.n - x.n).slice(0, 3);
@@ -2690,8 +2693,9 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
         if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 3) { drag.moved = true; HOVER.n = null; HOVER.p = null; tip.hidden = true; card.hidden = true; cv.style.cursor = 'grabbing'; }
         if (drag.moved) {
           const dx = e.clientX - drag.lx, dy = e.clientY - drag.ly;
-          if (e.shiftKey) { cvV.x += dx; cvV.y += dy; }
-          else { cvV.yaw += dx * 0.006; cvV.pit = Math.max(-1.3963, Math.min(1.3963, cvV.pit + dy * 0.006)); }
+          // 끌기 = 이동, Shift+끌기 = 회전. 회전의 좌우는 끄는 쪽으로 돌도록 yaw 를 뺀다 (상하는 그대로)
+          if (!e.shiftKey) { cvV.x += dx; cvV.y += dy; }
+          else { cvV.yaw -= dx * 0.006; cvV.pit = Math.max(-1.3963, Math.min(1.3963, cvV.pit + dy * 0.006)); }
           anim = null; kick();
         }
         drag.lx = e.clientX; drag.ly = e.clientY;
@@ -2727,6 +2731,7 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
     sum.addEventListener('click', e => {
       const a = e.target.closest('button')?.dataset.a;
       if (a === 'detail') openDetail(cvFocus); else if (a === 'all') setFocus(null);
+      else if (a === 'resume') { const t = cvFocus && NODE.get(cvFocus)?.t; if (t) post({ type: 'resume', label: 'Task', key: t.key || '' }); }
     });
     sum.addEventListener('mouseover', e => {
       const li = e.target.closest('[data-hk],[data-ht]');
@@ -3005,6 +3010,8 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
     if (state.detail) { renderDetail(); renderKinds(visibleTasks()); }
     $('rangeLabel').textContent = { today: '오늘', week: '최근 7일', all: '전체 기간' }[state.range];
     $('kindLabel').textContent = state.kindsOff.size ? `종류 ${Object.keys(KINDS).length - state.kindsOff.size}개` : '모든 종류';
+    // 연결망은 왼쪽 업무 카드가 상세를 보여 주므로 오른쪽 NODE DETAIL 을 숨기고 그 폭만큼 그림을 넓힌다 (다른 보기는 오른쪽 판 그대로)
+    $('node').hidden = top && m === 'cosmos';
     renderNode();
     if (!state.detail) ({ map: renderMap, sunburst: renderSunburst, cosmos: renderCosmos, sky: renderSky, orbit: renderOrbit, branch: renderBranch, ring: renderRing, radial: renderRadial, layer: renderLayer, bubble: renderBubble,
             tree: renderTree, flow: renderFlow, path: renderPath, gantt: renderGantt, cal: renderCal })[m]();
@@ -3146,7 +3153,7 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
   });
 
   /* ---------- 앱 데이터 연결: Swift가 window.WG.setGraph(data)로 그래프 전체를 넘긴다 ---------- */
-  // 업무 = Task, 상위 분류 = 업무 종류(TaskType)의 최상위, 세션 = PART_OF로 업무에 속한 Session,
+  // 업무 = Task, 상위 분류 = 분야(Theme, 없으면 업무 종류의 최상위), 세션 = PART_OF로 업무에 속한 Session,
   // 자료 = 세션이 TOUCHED한 Resource(코드, 문서, 노트, 디자인은 산출물), 앱 = USED, 주제 = ABOUT, 문제 = HIT, 나중에 할 일 = FOR
   const OUTPUT_SUBTYPES = new Set(['CodeFile', 'Note', 'Document', 'Design']);
   const THEME_COLORS = ['#00929e', '#b48f3c', '#915a95', '#5a9e6a', '#6885c3'];
@@ -3166,13 +3173,23 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
     dayDate = d => new Date(base.getFullYear(), base.getMonth(), base.getDate() + d);
     const now = new Date(); NOW_MIN = now.getHours() * 60 + now.getMinutes();
 
+    // 상위 분류 = 업무가 속한 분야(Task PART_OF Theme). 분야가 하나도 없으면(분야 붙이기를 끈 경우) 업무 종류의 최상위로 묶는다
     const themeOf = new Map(), tops = new Map();
+    const isField = l => l.type === 'PART_OF' && N.get(l.source) && N.get(l.source).label === 'Task' && N.get(l.target) && N.get(l.target).label === 'Theme';
+    const byField = links.some(isField);
     links.forEach(l => {
+      if (byField) {
+        if (isField(l)) { themeOf.set(l.source, l.target); tops.set(l.target, N.get(l.target)); }
+        return;
+      }
       if (l.type !== 'INSTANCE_OF' || !N.get(l.source) || N.get(l.source).label !== 'Task') return;
       const t = top(l.target); themeOf.set(l.source, t); if (N.get(t)) tops.set(t, N.get(t));
     });
     THEMES.length = 0;
     [...tops.values()].filter(n => n.title !== '기타').forEach((n, i) => THEMES.push({ id: 'tt' + n.id, name: n.title, color: THEME_COLORS[i % THEME_COLORS.length] }));
+    // 분야로 묶을 때 아직 분야가 안 붙은 업무(분야 단계 실패 등)는 기본으로 숨는 '기타' 대신 보이는 '분야 없음' 으로
+    const noField = byField && nodes.some(n => n.label === 'Task' && !themeOf.has(n.id));
+    if (noField) THEMES.push({ id: 'nofield', name: '분야 없음', color: '#b9b3ae' });
     THEMES.push({ id: 'etc', name: '기타', color: '#9b9490' });
 
     const later = new Map();
@@ -3186,7 +3203,7 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
       const res = ss.flatMap(s => out('TOUCHED', s.id));
       const th = N.get(themeOf.get(tn.id));
       const t = {
-        id: 'n' + tn.id, key: tn.key, theme: !th || th.title === '기타' ? 'etc' : 'tt' + th.id, title: tn.title,
+        id: 'n' + tn.id, key: tn.key, theme: byField && !th ? 'nofield' : !th || th.title === '기타' ? 'etc' : 'tt' + th.id, title: tn.title,
         sum: ss.map(s => s.props.summary).filter(Boolean).pop() || '', win: [0, DAYS - 1], w: 1,
         ref: uniq(res.filter(r => !OUTPUT_SUBTYPES.has(r.subtype)).map(r => short(r.title))),
         out: uniq(res.filter(r => OUTPUT_SUBTYPES.has(r.subtype)).map(r => short(r.title))),
