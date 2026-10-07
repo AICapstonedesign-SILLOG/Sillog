@@ -25,7 +25,7 @@ struct StorageSettingsView: View {
 
     private var usage: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionLabel("USAGE")
+            SectionLabel("사용량")
             if let usage = state.storageUsage {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(Self.size(usage.total)).font(.custom("Jost-ExtraLight", size: 38)).foregroundStyle(Brand.ink)
@@ -64,7 +64,7 @@ struct StorageSettingsView: View {
 
     private var retention: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionLabel("RETENTION")
+            SectionLabel("보관")
             SettingRow("보관 정책", detail: "화면 텍스트를 얼마나 남길지 골라요. 지난 기간은 주간·월간 요약이 대신해요.") {
                 BrandMenu(selection: presetBinding, options: presetOptions, width: 230)
             }
@@ -146,7 +146,7 @@ struct StorageSettingsView: View {
 
     private var cleanup: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionLabel("CLEANUP")
+            SectionLabel("정리")
             SettingRow("지금 정리", detail: lastRun) {
                 HStack(spacing: 10) {
                     if state.consolidating { ProgressView().controlSize(.small) }
@@ -162,7 +162,7 @@ struct StorageSettingsView: View {
             if let notes = state.consolidationReport?.notes, !notes.isEmpty {
                 Text(notes.joined(separator: "\n")).font(Brand.suit(11)).foregroundStyle(Brand.gray).padding(.top, 12)
             }
-            SectionLabel("KEPT RECORDS")
+            SectionLabel("보존한 기록")
             if state.retentionPins.isEmpty {
                 Text("업무 화면의 '원문 보존'이나 활동 로그의 '이 날 원문 보존'으로 지우지 않을 기록을 고를 수 있어요.")
                     .font(Brand.suit(11)).foregroundStyle(Brand.gray).padding(.vertical, 14)
@@ -205,7 +205,7 @@ struct CleanupPreviewSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Eyebrow("CLEANUP")
+                    Eyebrow("정리")
                     Text(preview.consentNeeded && !preview.plan.isEmpty ? "처음 정리하기 전에 확인해 주세요" : "정리 미리보기")
                         .font(Brand.suit(22, .bold)).foregroundStyle(Brand.ink).padding(.top, 8)
                 }

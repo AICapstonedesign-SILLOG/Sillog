@@ -4,19 +4,18 @@ import SwiftUI
 import WorkGraphCollectors
 import WorkGraphCore
 
-/// 설정 탭: 왼쪽 유리 사이드바(섹션 6개)와 오른쪽 내용. Figma ST-01~06, ST-W1~W8.
+/// 설정 탭: 왼쪽 유리 사이드바(설정 7개, 선 아래 파일·보관함·활동 로그)와 오른쪽 내용. Figma ST-01~06, ST-W1~W8.
 struct SettingsView: View {
     @EnvironmentObject private var state: AppState
-    @State private var section: Section
     @State private var launchAtLogin = false
     @State private var launchStatusLoaded = false
     @State private var launchError: String?
 
-    /// section: 처음 보일 구역 (스냅샷용)
-    init(section: Section = .permissions) { _section = State(initialValue: section) }
+    private var section: Section { state.settingsSection }
 
     enum Section: CaseIterable {
         case permissions, collection, privacy, storage, files, ai, general
+        case fileList, library, activity                 // 예전 파일, 보관함, 활동 로그 탭
         var title: String {
             switch self {
             case .permissions: "권한"
@@ -26,6 +25,9 @@ struct SettingsView: View {
             case .files: "파일 제안"
             case .ai: "AI 연결"
             case .general: "일반"
+            case .fileList: "파일"
+            case .library: "보관함"
+            case .activity: "활동 로그"
             }
         }
     }
@@ -33,17 +35,25 @@ struct SettingsView: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebar
-            VStack(spacing: 0) {
-                BrandPageHeader(eyebrow: "PREFERENCES", title: section.title)
-                ScrollView {
-                    content
-                        .padding(.horizontal, 34)
-                        .padding(.bottom, 40)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            Group {
+                switch section {
+                case .fileList: FilesView()                  // 세 화면은 자기 머리말이 있어 그대로 넣는다
+                case .library: if let chat = state.chat { LibraryView(library: chat.library, projects: chat.projects) } else { Color.white }
+                case .activity: ActivityLogView()
+                default:
+                    VStack(spacing: 0) {
+                        BrandPageHeader(title: section.title)
+                        ScrollView {
+                            content
+                                .padding(.horizontal, 34)
+                                .padding(.bottom, 40)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .background(.white)
+                    }
                 }
-                .background(.white)
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onChange(of: state.settings) { _, _ in state.applySettings() }
         .onChange(of: state.settings.llmProvider) { _, _ in state.updateCodexModelProviders() }
@@ -68,29 +78,31 @@ struct SettingsView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                Eyebrow("PREFERENCES")
-                Text("설정").font(Brand.suit(23, .semibold)).tracking(-0.805).foregroundStyle(Brand.ink).padding(.top, 10)
-                Text("기록의 범위는 내가 정해요.").font(Brand.suit(11)).foregroundStyle(Brand.gray).padding(.top, 8)
+                Text("설정").font(Brand.suit(23, .semibold)).tracking(-0.805).foregroundStyle(Brand.ink)
             }
             .padding(.horizontal, 24).padding(.top, 27).padding(.bottom, 20)
 
-            VStack(spacing: 4) {
-                ForEach(Section.allCases, id: \.self) { item in
-                    Button { section = item } label: {
-                        Text(item.title)
-                            .font(Brand.suit(12))
-                            .foregroundStyle(section == item ? Brand.ink : Brand.tabText)
+            ScrollView {                                        // 구역 10개라 창이 낮으면 목록만 스크롤
+                VStack(spacing: 2) {
+                    ForEach(Section.allCases, id: \.self) { item in
+                        if item == .fileList { Rectangle().fill(Brand.hairline).frame(height: 1).padding(.vertical, 8) }
+                        Button { state.settingsSection = item } label: {
+                            HStack(spacing: 6) {
+                                Text(item.title)
+                                    .font(Brand.suit(12))
+                                    .foregroundStyle(section == item ? Brand.ink : Brand.tabText)
+                                if item == .fileList, state.pendingFileSuggestions > 0 { FileBadge(count: state.pendingFileSuggestions) }
+                            }
                             .padding(.leading, 13)
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .frame(maxWidth: .infinity, minHeight: 38, alignment: .leading)   // 10개가 한 화면에 들어가게 44에서 줄임
                             .glassPill(section == item)
                             .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
+                .padding(.horizontal, 12).padding(.top, 12)
             }
-            .padding(.horizontal, 12).padding(.top, 12)
-
-            Spacer(minLength: 0)
 
             HStack(spacing: 10) {
                 RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0xF6F5F4))
@@ -122,6 +134,7 @@ struct SettingsView: View {
         case .files: files
         case .ai: aiConnection
         case .general: general
+        case .fileList, .library, .activity: EmptyView()
         }
     }
 
@@ -157,7 +170,7 @@ struct SettingsView: View {
 
     private var collection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionLabel("COLLECTION")
+            SectionLabel("수집")
             SettingRow("화면 텍스트 읽기", detail: "텍스트가 부족하면 OCR로 보충해요.") {
                 Toggle("", isOn: $state.settings.captureText).toggleStyle(BrandSwitchStyle())
             }
@@ -183,13 +196,13 @@ struct SettingsView: View {
 
     private var privacy: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionLabel("RETENTION")
+            SectionLabel("보관")
             SettingRow("보관 기간", detail: "스크린샷·화면 텍스트·활동 기록을 얼마나 남길지는 저장 공간에서 정해요.") {
-                Button("저장 공간 열기") { section = .storage }.buttonStyle(BrandButtonStyle())
+                Button("저장 공간 열기") { state.settingsSection = .storage }.buttonStyle(BrandButtonStyle())
             }
-            SectionLabel("EXCLUDED APPS")
+            SectionLabel("기록하지 않는 앱")
             ExcludedAppsView()
-            SectionLabel("DATA")
+            SectionLabel("데이터")
             SettingRow("저장 위치", detail: state.databasePath) {
                 Button("Finder에서 보기") { state.revealDataFolder() }.buttonStyle(BrandButtonStyle())
             }
@@ -252,7 +265,7 @@ struct SettingsView: View {
     private var aiConnection: some View {
         VStack(alignment: .leading, spacing: 0) {
             ConnectionSection(
-                eyebrow: "ORGANIZATION CONNECTION", title: "업무 정리", intro: nil,
+                eyebrow: "업무 정리 연결", title: "업무 정리", intro: nil,
                 provider: $state.settings.llmProvider,
                 openAIModel: $state.settings.llmModel, baseURL: $state.settings.llmBaseURL, apiKey: $state.settings.llmAPIKey,
                 modelPlaceholder: "gpt-5.4-mini", urlPlaceholder: "http://localhost:5010/v1",
@@ -260,7 +273,7 @@ struct SettingsView: View {
                 testLabel: "연결 확인", testing: false, testResult: state.llmTestResult,
                 test: { Task { await state.testLLM() } }, note: nil)
             ConnectionSection(
-                eyebrow: "CHAT CONNECTION", title: "채팅", intro: "정리용 모델과 별개로 저장돼요. 채팅과 하위 에이전트는 아래 모델을 써요.",
+                eyebrow: "채팅 연결", title: "채팅", intro: "정리용 모델과 별개로 저장돼요. 채팅과 하위 에이전트는 아래 모델을 써요.",
                 provider: $state.settings.chatProvider,
                 openAIModel: $state.settings.chatModel, baseURL: $state.settings.chatBaseURL, apiKey: $state.settings.chatAPIKey,
                 modelPlaceholder: "모델", urlPlaceholder: "서버 주소",
@@ -406,7 +419,7 @@ private struct ConnectionSection: View {
             }
             .padding(.vertical, 16)
             VStack(alignment: .leading, spacing: 8) {
-                Eyebrow("DEVICE CODE")
+                Eyebrow("기기 코드")
                 Text(code.userCode).font(Brand.jost(28)).tracking(1.4).foregroundStyle(Brand.ink).textSelection(.enabled)
             }
             .padding(.horizontal, 16).padding(.vertical, 14)

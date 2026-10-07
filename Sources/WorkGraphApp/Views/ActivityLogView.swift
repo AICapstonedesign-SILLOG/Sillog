@@ -58,10 +58,7 @@ struct ActivityLogView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            BrandPageHeader(eyebrow: "Transparent by design", title: "활동 로그",
-                            detail: loaded && (!observationRows.isEmpty || !batchRows.isEmpty)
-                                ? "기록한 내용과 AI에 보낸 내용을 그대로 확인해요."
-                                : "수집한 기록과, 정리할 때 AI에 보낸 내용과 받은 응답을 확인해요.")
+            BrandPageHeader(title: "활동 로그")
             VStack(spacing: 0) {
                 sectionTabs
                 switch section {
@@ -318,8 +315,7 @@ struct ObservationDetail: View {
         VStack(spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Eyebrow("Collected record")
-                    Text("수집 기록 원문").font(Brand.suit(22, .bold)).foregroundStyle(Brand.ink).padding(.top, 8)
+                    Text("수집 기록 원문").font(Brand.suit(22, .bold)).foregroundStyle(Brand.ink)
                     Text("관측 행 #\(observation.id ?? 0)").font(Brand.suit(12)).foregroundStyle(Brand.gray).padding(.top, 10)
                 }
                 Spacer()
@@ -483,9 +479,8 @@ private struct BatchDetail: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Eyebrow("LLM exchange")
                     Text("정리 #\(batch.id ?? 0), \(batch.status == "ok" ? "성공" : "실패")")
-                        .font(Brand.suit(16, .bold)).foregroundStyle(Brand.ink).padding(.top, 6)
+                        .font(Brand.suit(16, .bold)).foregroundStyle(Brand.ink)
                     Text("\(Self.time.string(from: Date(timeIntervalSince1970: batch.startedAt))), \(batch.model ?? "-"), 행 \(batch.rowCount)개, 토큰 \(batch.promptTokens.formatted()) + \(batch.completionTokens.formatted())")
                         .font(Brand.suit(12)).foregroundStyle(Brand.gray).padding(.top, 10)
                     if let error = batch.error { summaryLine("오류", error) }

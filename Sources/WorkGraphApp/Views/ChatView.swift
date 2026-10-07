@@ -178,12 +178,11 @@ struct ChatView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                Eyebrow("THINK WITH YOUR WORK")
                 HStack {
                     Text("채팅").font(Brand.suit(23, .semibold)).tracking(-0.805).foregroundStyle(Brand.ink)
                     Spacer()
                     ChatTag(text: "일부")
-                }.padding(.top, 8)
+                }
                 Button { chat.newConversation(); showPlugins = false; selectedProjectID = nil } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "plus").font(.system(size: 12))
@@ -196,12 +195,12 @@ struct ChatView: View {
             }.padding(.horizontal, 24).padding(.top, 27).padding(.bottom, 20)
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    Eyebrow("CONVERSATIONS").padding(.horizontal, 12).padding(.top, 11).padding(.bottom, 14)
+                    Eyebrow("대화").padding(.horizontal, 12).padding(.top, 11).padding(.bottom, 14)
                     LazyVStack(spacing: 5) {
                         ForEach(chat.conversations.filter { $0.projectID == nil }) { item in conversationRow(item) }
                     }
                     HStack {
-                        Eyebrow("PROJECTS")
+                        Eyebrow("프로젝트")
                         Spacer()
                         Button { showNewProject = true } label: { Image(systemName: "plus").font(.system(size: 11)) }.buttonStyle(.plain).help("프로젝트 직접 만들기")
                         Button { showProjectProposals = true } label: {
@@ -267,8 +266,7 @@ struct ChatView: View {
     private var header: some View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 0) {
-                Eyebrow("CHAT")
-                Text(chat.messages.isEmpty ? "새 대화" : chat.current.title).font(Brand.suit(16)).foregroundStyle(Brand.ink).lineLimit(1).padding(.top, 7)
+                Text(chat.messages.isEmpty ? "새 대화" : chat.current.title).font(Brand.suit(16)).foregroundStyle(Brand.ink).lineLimit(1)
                 if let project = projects.projects.first(where: { $0.id == chat.current.projectID }) {
                     Button { openProject(project) } label: {
                         Label(project.title, systemImage: "folder").font(Brand.suit(10)).foregroundStyle(Brand.gray)
@@ -822,7 +820,7 @@ struct ChatView: View {
     private func automationApproval(_ message: ConversationMessage) -> some View {
         let scope = chat.current.scope
         let plugins = (scope.plugins + (scope.useGitHub ? ["GitHub"] : [])).joined(separator: ", ")
-        return ChatDialogFrame(eyebrow: "AUTOMATION", title: "예약 작업 등록", width: 600, height: 520, onClose: { pendingAutomation = nil }) {
+        return ChatDialogFrame(title: "예약 작업 등록", width: 600, height: 520, onClose: { pendingAutomation = nil }) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if let proposal = message.automation {
@@ -902,9 +900,8 @@ struct ChatDialogButtonStyle: ButtonStyle {
     }
 }
 
-/// 대화 상자: 눈썹 글씨와 제목이 있는 머리글, 흰 본문, 하단 버튼 줄
+/// 대화 상자: 제목이 있는 머리글, 흰 본문, 하단 버튼 줄
 struct ChatDialogFrame<Content: View, Footer: View>: View {
-    let eyebrow: String
     let title: String
     var detail: String? = nil
     var width: CGFloat = 600
@@ -916,8 +913,7 @@ struct ChatDialogFrame<Content: View, Footer: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                Eyebrow(eyebrow)
-                Text(title).font(Brand.suit(22)).tracking(-0.77).foregroundStyle(Brand.ink).lineLimit(1).padding(.top, 10).padding(.trailing, 30)
+                Text(title).font(Brand.suit(22)).tracking(-0.77).foregroundStyle(Brand.ink).lineLimit(1).padding(.trailing, 30)
                 if let detail { Text(detail).font(Brand.suit(12)).foregroundStyle(Brand.gray).padding(.top, 9) }
             }.padding(.horizontal, 27).padding(.top, 25).padding(.bottom, 22)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -970,7 +966,7 @@ private struct ChatSourceSheet: View {
     let source: ChatSource
     @Environment(\.dismiss) private var dismiss
     var body: some View {
-        ChatDialogFrame(eyebrow: "SOURCE", title: source.title, width: 600, height: 400, onClose: { dismiss() }) {
+        ChatDialogFrame(title: source.title, width: 600, height: 400, onClose: { dismiss() }) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if !source.location.isEmpty {
@@ -1004,7 +1000,7 @@ private struct ChatSchedulesView: View {
     private var selected: ChatAutomation? { chat.automations.first { $0.id == selectedID } ?? chat.automations.first }
 
     var body: some View {
-        ChatDialogFrame(eyebrow: "SCHEDULED WORK", title: "예약 작업",
+        ChatDialogFrame(title: "예약 작업",
                         detail: "앱이 켜져 있을 때만 실행돼요. 지난 실행은 한 번만 처리해요.",
                         width: chat.automations.isEmpty ? 600 : 760, height: 505, onClose: { dismiss() }) {
             if chat.automations.isEmpty {

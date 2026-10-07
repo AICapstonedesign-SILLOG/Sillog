@@ -87,13 +87,10 @@ struct TasksView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                Eyebrow("YOUR WORK")
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text("업무").font(Brand.suit(23, .semibold)).tracking(-0.8).foregroundStyle(Brand.ink)
                     Text("\(state.taskList.count)").font(.custom("Jost-Light", size: 19)).foregroundStyle(Brand.gray)
                 }
-                .padding(.top, 8)
-                Text("흩어진 기록을 하나의 흐름으로").font(Brand.suit(11)).foregroundStyle(Brand.gray).padding(.top, 8)
             }
             .padding(.horizontal, 24).padding(.top, 27).padding(.bottom, 20)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -203,7 +200,6 @@ struct TasksView: View {
             HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 10) {
-                        Eyebrow("WORK CONTEXT")
                         if let type = task.taskType { BrandBadge(type) }
                     }
                     Text(task.title).font(Brand.suit(28, .semibold)).tracking(-1.26).foregroundStyle(Brand.ink).lineLimit(1).padding(.top, 14)
@@ -274,7 +270,7 @@ struct TasksView: View {
     private func stats(_ task: TaskSummary) -> some View {
         let minutes = Int(task.activeSeconds / 60)
         return HStack(alignment: .top, spacing: 0) {
-            statCell("TIME SPENT", note: "누적 작업 시간", leading: false) {
+            statCell("작업 시간", note: "누적 작업 시간", leading: false) {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     if minutes >= 60 {
                         bigNumber("\(minutes / 60)"); unit("시간")
@@ -284,12 +280,12 @@ struct TasksView: View {
                     }
                 }
             }
-            statCell("SESSIONS", note: "이어진 작업 세션", leading: true) {
+            statCell("세션", note: "이어진 작업 세션", leading: true) {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     bigNumber(String(format: "%02d", task.sessionCount)); unit("개")
                 }
             }
-            statCell("LAST ACTIVITY", note: "내 업무 기록", leading: true) {
+            statCell("마지막 활동", note: "내 업무 기록", leading: true) {
                 Text(task.sessionCount == 0 ? "활동 없음" : Self.lastActive(task.lastActive))
                     .font(Brand.suit(17)).foregroundStyle(Brand.ink).frame(height: 60)
             }
@@ -473,8 +469,7 @@ struct ResumeSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Eyebrow("RESUME")
-                    Text("다시 열기").font(Brand.suit(22, .bold)).foregroundStyle(Brand.ink).padding(.top, 8)
+                    Text("다시 열기").font(Brand.suit(22, .bold)).foregroundStyle(Brand.ink)
                     Text(request.plan.title).font(Brand.suit(12)).foregroundStyle(Brand.gray).lineLimit(2).padding(.top, 10)
                 }
                 Spacer()
@@ -587,8 +582,7 @@ struct DigestEditSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                Eyebrow("DIGEST")
-                Text("요약 고치기").font(Brand.suit(22, .bold)).foregroundStyle(Brand.ink).padding(.top, 8)
+                Text("요약 고치기").font(Brand.suit(22, .bold)).foregroundStyle(Brand.ink)
                 Text(digest.title).font(Brand.suit(12)).foregroundStyle(Brand.gray).lineLimit(1).padding(.top, 10)
             }
             .padding(.horizontal, 32).padding(.top, 26).padding(.bottom, 18)

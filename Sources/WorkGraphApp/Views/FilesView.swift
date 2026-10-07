@@ -16,7 +16,7 @@ struct FilesView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            BrandPageHeader(eyebrow: "A PLACE FOR EVERYTHING", title: "파일", detail: "내려받은 자료를, 하던 업무 곁에.") {
+            BrandPageHeader(title: "파일") {
                 HStack(spacing: 15) {
                     Text(String(format: "%02d", pending.count)).font(Brand.jost(52).weight(.ultraLight)).foregroundStyle(Brand.ink)
                     Text("대기 중인\n제안").font(Brand.suit(11)).foregroundStyle(Brand.gray).lineSpacing(2)
@@ -137,7 +137,7 @@ struct FilesView: View {
 
     private var historySection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionTitle("지난 기록", trailing: Eyebrow("FILE HISTORY")).padding(.top, 30)
+            sectionTitle("지난 기록", trailing: EmptyView()).padding(.top, 30)
             VStack(spacing: 0) {
                 historyRow(Text("파일"), Text("폴더"), Text("처리 결과"), Text("시간"), AnyView(EmptyView()), header: true)
                 ForEach(history) { suggestion in

@@ -203,9 +203,9 @@ private struct MenuBarDashboard: View {
     /// TODAY·WAITING: 눈썹 글씨 17, 숫자 76 (Jost 200 54), 설명 15. 사이에 세로선
     private var stats: some View {
         HStack(alignment: .top, spacing: 0) {
-            number("TODAY", state.todayCount, "오늘 기록").frame(width: 149, alignment: .leading)
+            number("오늘", state.todayCount, "오늘 기록").frame(width: 149, alignment: .leading)
             Rectangle().fill(Brand.hairline).frame(width: 1, height: 107)
-            number("WAITING", state.pendingCount, "정리 대기").padding(.leading, 23)
+            number("대기", state.pendingCount, "정리 대기").padding(.leading, 23)
             Spacer(minLength: 0)
         }
         .padding(.top, 21)
@@ -240,10 +240,10 @@ private struct MenuBarDashboard: View {
         .overlay(alignment: .bottom) { hairline }
     }
 
-    /// 파일 정리 제안이 있으면: 누르면 파일 탭
+    /// 파일 정리 제안이 있으면: 누르면 설정의 파일 구역
     private var fileRow: some View {
         Button {
-            state.selectedTab = .files
+            state.selectedTab = .settings; state.settingsSection = .fileList
             openMain()
         } label: {
             HStack(spacing: 0) {
@@ -263,7 +263,7 @@ private struct MenuBarDashboard: View {
     /// 최근 업무 3개. 누르면 다시 열기 (prepareResume 이 창을 연다)
     private var recentWork: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Eyebrow("RECENT WORK").frame(height: 17, alignment: .leading)
+            Eyebrow("최근 업무").frame(height: 17, alignment: .leading)
             Text("최근 업무 다시 열기").font(Brand.suit(10)).foregroundStyle(Brand.gray).padding(.top, 5)
             VStack(alignment: .leading, spacing: 20) {
                 ForEach(state.taskList.prefix(3)) { task in

@@ -49,7 +49,7 @@ struct PluginCatalogView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            BrandPageHeader(eyebrow: "CONNECTED SOURCES", title: "플러그인", detail: "외부 서비스를 연결해 채팅에서 내 자료를 활용해요.") {
+            BrandPageHeader(title: "플러그인") {
                 Button { onClose() } label: {
                     Image(systemName: "xmark").font(.system(size: 13)).foregroundStyle(Brand.tabText)
                         .frame(width: 28, height: 28).contentShape(Rectangle())
@@ -201,7 +201,7 @@ struct PluginCatalogView: View {
 
     private var googleInstallSheet: some View {
         VStack(alignment: .leading, spacing: 0) {
-            BrandPageHeader(eyebrow: "CONNECTED SOURCES", title: "설치할 Google 플러그인 선택", detail: "승인할 자료만 골라 주세요. 연결한 뒤에도 각 플러그인을 해제할 수 있어요.") {
+            BrandPageHeader(title: "설치할 Google 플러그인 선택", detail: "승인할 자료만 골라 주세요. 연결한 뒤에도 각 플러그인을 해제할 수 있어요.") {
                 Button { showGoogleInstall = false } label: {
                     Image(systemName: "xmark").font(.system(size: 13)).foregroundStyle(Brand.tabText)
                         .frame(width: 28, height: 28).contentShape(Rectangle())

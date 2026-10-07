@@ -130,7 +130,7 @@ private struct ChatCitationButton: View {
         .buttonStyle(.plain)
         .popover(isPresented: $showingSources) {
             VStack(alignment: .leading, spacing: 12) {
-                Eyebrow("EVIDENCE")
+                Eyebrow("출처")
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         ForEach(sources) { source in

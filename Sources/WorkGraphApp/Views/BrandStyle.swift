@@ -69,13 +69,12 @@ struct Eyebrow: View {
     let text: String
     init(_ text: String) { self.text = text }
     var body: some View {
-        Text(text.uppercased()).font(Brand.jost(12)).tracking(1.44).foregroundStyle(Brand.gray)
+        Text(text).font(Brand.suit(11, .semibold)).foregroundStyle(Brand.gray)   // 한글 눈썹 글씨
     }
 }
 
-/// 탭 첫머리: 눈썹 글씨, 그 아래 한 줄에 제목(22)과 설명(12), 오른쪽 추가 요소. 아래 구분선.
+/// 탭 첫머리: 한 줄에 제목(22)과 설명(12), 오른쪽 추가 요소. 아래 구분선.
 struct BrandPageHeader<Trailing: View>: View {
-    let eyebrow: String
     let title: String
     var detail: String? = nil
     @ViewBuilder var trailing: () -> Trailing
@@ -83,7 +82,6 @@ struct BrandPageHeader<Trailing: View>: View {
     var body: some View {
         HStack(alignment: .bottom) {
             VStack(alignment: .leading, spacing: 6) {
-                Eyebrow(eyebrow)
                 HStack(alignment: .firstTextBaseline, spacing: 14) {           // 제목과 설명은 한 줄
                     Text(title).font(Brand.suit(22, .semibold)).tracking(-0.66).foregroundStyle(Brand.ink)
                     if let detail { Text(detail).font(Brand.suit(12)).foregroundStyle(Brand.gray).lineLimit(1) }
@@ -102,8 +100,8 @@ struct BrandPageHeader<Trailing: View>: View {
 }
 
 extension BrandPageHeader where Trailing == EmptyView {
-    init(eyebrow: String, title: String, detail: String? = nil) {
-        self.init(eyebrow: eyebrow, title: title, detail: detail, trailing: { EmptyView() })
+    init(title: String, detail: String? = nil) {
+        self.init(title: title, detail: detail, trailing: { EmptyView() })
     }
 }
 

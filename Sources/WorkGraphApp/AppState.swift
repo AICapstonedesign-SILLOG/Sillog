@@ -33,6 +33,8 @@ final class AppState: ObservableObject {
     /// 로그인해야 쓸 수 있다. `.ready` 가 되기 전에는 수집기도 배치도 돌지 않는다.
     @Published var phase: AppPhase = .login
     @Published var selectedTab: MainWindow.Tab = MainWindow.initialTab
+    /// 설정 탭에서 보고 있는 구역 (메뉴 막대·알림이 파일 구역으로 바로 연다)
+    @Published var settingsSection: SettingsView.Section = .permissions
     /// 파일 정리 제안. 대기 중인 것이 앞에 온다.
     @Published var fileSuggestions: [FileSuggestion] = []
     @Published var fileError: String?

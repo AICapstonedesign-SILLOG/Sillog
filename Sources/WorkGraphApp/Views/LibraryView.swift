@@ -2,9 +2,8 @@ import SwiftUI
 import Quartz
 import WorkGraphCore
 
-/// 시트 머리: 눈썹 글씨, 제목(22), 설명(12), 닫기 버튼. 유리 판 바탕에 아래 구분선 (Figma 자료 연결 시트)
+/// 시트 머리: 제목(22), 설명(12), 닫기 버튼. 유리 판 바탕에 아래 구분선 (Figma 자료 연결 시트)
 struct LibrarySheetHeader: View {
-    let eyebrow: String
     let title: String
     var detail: String? = nil
     var onClose: () -> Void
@@ -12,8 +11,7 @@ struct LibrarySheetHeader: View {
     var body: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 0) {
-                Eyebrow(eyebrow)
-                Text(title).font(Brand.suit(22)).tracking(-0.77).foregroundStyle(Brand.ink).padding(.top, 8)
+                Text(title).font(Brand.suit(22)).tracking(-0.77).foregroundStyle(Brand.ink)
                 if let detail { Text(detail).font(Brand.suit(12)).foregroundStyle(Brand.gray).padding(.top, 6) }
             }
             Spacer(minLength: 12)
@@ -69,11 +67,10 @@ struct LibraryView: View {
         .onChange(of: projects.projects) { _, values in if !values.contains(where: { $0.id == projectID }) { projectID = "" } }
     }
 
-    /// 채팅 화면과 같은 유리 사이드바: 눈썹 글씨, 제목, 파일 올리기 버튼, 종류와 프로젝트 필터
+    /// 채팅 화면과 같은 유리 사이드바: 제목, 파일 올리기 버튼, 종류와 프로젝트 필터
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Eyebrow("YOUR LIBRARY").padding(.top, 27)
-            Text("보관함").font(Brand.suit(23, .semibold)).tracking(-0.805).foregroundStyle(Brand.ink).padding(.top, 8)
+            Text("보관함").font(Brand.suit(23, .semibold)).tracking(-0.805).foregroundStyle(Brand.ink).padding(.top, 27)
             Button { library.importFiles() } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "plus").font(.system(size: 12))
@@ -83,14 +80,14 @@ struct LibraryView: View {
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
                     .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Brand.line))
             }.buttonStyle(.plain).disabled(library.busy).padding(.top, 18)
-            Eyebrow("KIND").padding(.top, 26).padding(.leading, 12)
+            Eyebrow("종류").padding(.top, 26).padding(.leading, 12)
             VStack(spacing: 2) {
                 filterRow("전체 종류", kind.isEmpty) { kind = "" }
                 filterRow("업로드", kind == "upload") { kind = "upload" }
                 filterRow("생성한 결과물", kind == "generated") { kind = "generated" }
                 filterRow("저장한 답변", kind == "note") { kind = "note" }
             }.padding(.top, 8)
-            Eyebrow("PROJECT").padding(.top, 22).padding(.leading, 12)
+            Eyebrow("프로젝트").padding(.top, 22).padding(.leading, 12)
             ScrollView {
                 VStack(spacing: 2) {
                     filterRow("전체 프로젝트", projectID.isEmpty) { projectID = "" }
@@ -116,8 +113,7 @@ struct LibraryView: View {
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
-            BrandPageHeader(eyebrow: "LIBRARY", title: "자료 보관함",
-                            detail: "업로드한 파일, 생성한 결과물과 저장한 답변을 모아 관리합니다. 프로젝트나 대화에 연결한 자료만 답변에 사용합니다.") {
+            BrandPageHeader(title: "자료 보관함") {
                 if library.busy { ProgressView().controlSize(.small) }
             }
             HStack(spacing: 8) {
@@ -219,7 +215,7 @@ struct LibraryPicker: View {
     @State private var query = ""
     var body: some View {
         VStack(spacing: 0) {
-            LibrarySheetHeader(eyebrow: "CONTEXT SOURCES", title: "보관함에서 선택", detail: "연결한 자료만 답변에 사용해요.") { dismiss() }
+            LibrarySheetHeader(title: "보관함에서 선택", detail: "연결한 자료만 답변에 사용해요.") { dismiss() }
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Brand.gray)
                 TextField("자료 이름 검색", text: $query).textFieldStyle(.plain).font(Brand.suit(12)).foregroundStyle(Brand.text)
