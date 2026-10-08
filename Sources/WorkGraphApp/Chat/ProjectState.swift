@@ -23,7 +23,7 @@ final class ProjectState: ObservableObject {
     }
 
     func reload() {
-        do { try store.cleanProposals(); projects = try store.projects(); proposals = try store.proposals(); items = try store.items() }
+        do { projects = try store.projects(); proposals = try store.proposals(); items = try store.items() }
         catch { self.error = error.localizedDescription }
     }
 

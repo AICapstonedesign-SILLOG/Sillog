@@ -71,13 +71,6 @@ struct GraphWebView: NSViewRepresentable {
                 let configuration = NSWorkspace.OpenConfiguration()
                 configuration.activates = true
                 NSWorkspace.shared.openApplication(at: app, configuration: configuration)
-            case "ask":                                                     // 검색 상자 채팅 방식: 새 대화로 질문하고 채팅 탭으로
-                guard let text = body["text"] as? String, !text.isEmpty else { return }
-                Task { @MainActor in
-                    guard let chat = self.state.chat else { return }
-                    chat.newConversation(); chat.draft = text; chat.send()
-                    self.state.selectedTab = .chat
-                }
             default:
                 break
             }

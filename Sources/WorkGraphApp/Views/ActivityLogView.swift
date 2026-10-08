@@ -2,32 +2,24 @@ import AppKit
 import SwiftUI
 import WorkGraphCore
 
-private let logFill = ChatPalette.soft   // 선택 분절, 원문 상자 바탕 (채팅 탭과 같은 옅은 회색)
+private let logFill = Color(hex: 0xF6F5F4)   // 표 머리 줄, 선택 줄, 원문 상자 바탕
 
 /// 원시 데이터(관측 행)와 LLM 이 받고 돌려준 것을 그대로 들여다보는 화면.
-/// 수집 기록과 정리 기록을 시간 순서 하나로 합친 표: 위에 아직 보내지 않은(대기) 기록, 그 아래에 정리마다 묶음 줄과 그 정리에 들어간 기록.
-/// 기록 줄을 누르면 원문 시트, 정리 머리 줄을 누르면 보낸 내용과 받은 응답 시트가 열린다.
+/// 수집 기록 표(행을 누르면 원문 시트), 정리 기록 표(행을 누르면 표 아래에 보낸 내용과 받은 응답).
+/// 정리 기록에서는 위 표만 스크롤되고 아래 LLM 교환 카드는 제자리에 있다 (정리가 쌓여도 카드가 표 끝으로 밀려나지 않게).
 struct ActivityLogView: View {
     @EnvironmentObject private var state: AppState
     @State private var selectedObservation: Int64?
     @State private var selectedBatch: Int64?
+    @State private var section: Section
     @State private var loaded = false
-    @State private var expanded: Set<Int64> = []            // 펼친 묶음 (정리 id, 대기는 pendingKey)
-    @State private var pending: [Observation] = []          // 아직 정리에 보내지 않은 기록
-    @State private var grouped: [Int64: [Observation]] = [:]   // 정리 id 별 기록
-    @State private var observationRows: [ObservationRow] = []
-    @State private var batchRows: [BatchRow] = []
-    @State private var showTitle = false                    // 창 제목이 한 줄이라도 있으면 열을 보인다
-    @State private var showLink = false                     // 주소나 문서 경로가 한 줄이라도 있으면 열을 보인다
 
-    /// 예전 두 구역 화면의 호출부(스냅샷, 테스트)가 쓰던 값. 지금은 구역이 하나라 화면에는 영향이 없다
     enum Section { case collected, batches }
     private let receivedFirst: Bool
 
-    private static let pendingKey: Int64 = -1
-    private static let previewCount = 5
-
+    /// section·showReceived: 처음 보일 구역과 정리 카드의 보기 (스냅샷·테스트용, 앱에서는 기본값)
     init(section: Section = .collected, showReceived: Bool = false) {
+        _section = State(initialValue: section)
         receivedFirst = showReceived
     }
 
@@ -41,39 +33,41 @@ struct ActivityLogView: View {
         let batch: BatchRecord
     }
 
-    private static let clock: DateFormatter = {
+    private static let time: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
+        formatter.dateFormat = "MM-dd HH:mm:ss"
         return formatter
     }()
 
-    private static func hm(_ ts: Double) -> String { clock.string(from: Date(timeIntervalSince1970: ts)) }
+    private static let today: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.dateFormat = "오늘, M월 d일"
+        return formatter
+    }()
+
+    @State private var observationRows: [ObservationRow] = []
+    @State private var batchRows: [BatchRow] = []
 
     private func rebuildRows() {
         observationRows = state.recent.compactMap { observation in observation.id.map { ObservationRow(id: $0, observation: observation) } }
         batchRows = state.batches.compactMap { batch in batch.id.map { BatchRow(id: $0, batch: batch) } }
-        pending = state.recent.filter { $0.batchId == nil }
-        grouped = Dictionary(grouping: state.recent.filter { $0.batchId != nil }) { $0.batchId ?? 0 }
-        showTitle = state.recent.contains { !($0.windowTitle ?? "").isEmpty }
-        showLink = state.recent.contains { !($0.url ?? $0.docPath ?? "").isEmpty }
+        if section == .batches, selectedBatch == nil { selectedBatch = batchRows.first?.id }
         loaded = true
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            BrandPageHeader(title: "활동 로그")
+            BrandPageHeader(eyebrow: "Transparent by design", title: "활동 로그",
+                            detail: loaded && (!observationRows.isEmpty || !batchRows.isEmpty)
+                                ? "기록한 내용과 AI에 보낸 내용을 그대로 확인해요."
+                                : "수집한 기록과, 정리할 때 AI에 보낸 내용과 받은 응답을 확인해요.")
             VStack(spacing: 0) {
-                if !loaded {
-                    stateView(icon: nil, title: nil, message: "기록을 불러오는 중이에요")
-                } else if pending.isEmpty, batchRows.isEmpty {
-                    stateView(icon: "list.bullet", title: "아직 수집한 기록이 없어요",
-                              message: "앱을 오가며 작업하면 수집한 기록과 AI가 정리한 결과가 시간 순서로 여기에 쌓여요.")
-                } else {
-                    if !state.status.accessibility { accessibilityNotice }
-                    timeline
+                sectionTabs
+                switch section {
+                case .collected: collectedSection
+                case .batches: batchSection
                 }
-                Text("비공개 창의 URL과 비밀번호 입력칸은 기록하지 않아요.")
-                    .font(Brand.suit(11)).foregroundStyle(Brand.gray).padding(.vertical, 10)
             }
             .padding(.horizontal, 34)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -82,202 +76,151 @@ struct ActivityLogView: View {
         .onAppear(perform: rebuildRows)
         .onChange(of: state.recent) { _, _ in rebuildRows() }
         .onChange(of: state.batches) { _, _ in rebuildRows() }
+        .onChange(of: section) { _, value in
+            if value == .batches, selectedBatch == nil { selectedBatch = batchRows.first?.id }
+        }
         .sheet(isPresented: Binding(get: { selectedObservation != nil }, set: { if !$0 { selectedObservation = nil } })) {
             if let row = observationRows.first(where: { $0.id == selectedObservation }) {
                 ObservationDetail(observation: row.observation, onClose: { selectedObservation = nil })
             }
         }
-        .sheet(isPresented: Binding(get: { selectedBatch != nil }, set: { if !$0 { selectedBatch = nil } })) {
-            if let row = batchRows.first(where: { $0.id == selectedBatch }) {
-                batchSheet(row.batch)
-            }
-        }
     }
 
-    // MARK: 표
+    // MARK: 구역 탭
 
-    /// 열 너비: 시각, 앱, 계기는 고정, 창 제목과 주소는 남는 폭을 나눠 쓴다
-    private static let timeWidth: CGFloat = 64
-    private static let appWidth: CGFloat = 150
-    private static let triggerWidth: CGFloat = 72
-
-    /// 엑셀처럼 칸이 나뉜 표: 맨 위 열 머리는 고정, 정리마다 하늘색 묶음 줄 아래에 그 정리에 들어간 기록
-    private var timeline: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
-                SwiftUI.Section(header: columnHeader) {
-                    pendingBlock
-                    ForEach(batchRows) { row in batchBlock(row.batch) }
-                }
-            }
-            .overlay(Rectangle().strokeBorder(Brand.line))
-            .padding(.top, 16)
-        }
-    }
-
-    /// 손쉬운 사용이 꺼져 있으면 앱 이름만 쌓인다는 안내 (누르면 설정의 일반)
-    private var accessibilityNotice: some View {
-        Button { state.settingsSection = .record } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Self.failColor)
-                Text("손쉬운 사용 권한이 꺼져 있어 창 제목과 주소 없이 앱 이름만 기록되고 있어요.").foregroundStyle(Brand.text)
-                Text("권한 켜기").foregroundStyle(Brand.ink).underline()
-            }
-            .font(Brand.suit(11)).padding(.top, 14).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// 앱 열 폭: 창 제목, 주소 열이 없으면 남는 폭을 다 쓴다
-    private var appWidth: CGFloat? { showTitle || showLink ? Self.appWidth : nil }
-
-    private var columnHeader: some View {
-        HStack(spacing: 0) {
-            cell(width: Self.timeWidth) { headText("시각") }
-            cell(width: appWidth) { headText("앱") }
-            if showTitle { cell(width: nil) { headText("창 제목") } }
-            if showLink { cell(width: nil) { headText("주소, 문서") } }
-            cell(width: Self.triggerWidth, last: true) { headText("계기") }
-        }
-        .frame(height: 30)
-        .background(logFill)
-        .overlay(alignment: .bottom) { hairline }
-    }
-
-    private func headText(_ title: String) -> some View {
-        Text(title).font(Brand.suit(11, .semibold)).foregroundStyle(Brand.gray)
-    }
-
-    /// 표 칸 하나: 고정 폭(width) 또는 남는 폭, 오른쪽에 세로 선
-    private func cell<V: View>(width: CGFloat?, last: Bool = false, @ViewBuilder _ content: () -> V) -> some View {
-        content()
-            .lineLimit(1)
-            .padding(.horizontal, 10)
-            .frame(minWidth: width, maxWidth: width ?? .infinity, maxHeight: .infinity, alignment: .leading)
-            .overlay(alignment: .trailing) { if !last { Rectangle().fill(Brand.line).frame(width: 1) } }
-    }
-
-    /// 묶음 줄: 표 폭 전체를 쓰는 하늘색 줄 (대기, 정리 #n)
-    private func groupRow<V: View>(@ViewBuilder _ content: () -> V) -> some View {
-        content()
-            .padding(.horizontal, 10).padding(.vertical, 7)
-            .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
-            .contentShape(Rectangle())
-            .hoverHighlight(cornerRadius: 0)
-            .background(Brand.sky.opacity(0.16))
-            .overlay(alignment: .bottom) { hairline }
-    }
-
-    private func pill(_ text: String, color: Color) -> some View {
-        Text(text).font(Brand.suit(11, .semibold)).foregroundStyle(color)
-            .padding(.horizontal, 8).padding(.vertical, 2)
-            .background(Capsule().fill(color.opacity(0.1)))
-    }
-
-    /// 대기: 아직 정리에 보내지 않은 기록
-    private var pendingBlock: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            groupRow {
-                HStack(spacing: 10) {
-                    pill("대기", color: Brand.gray)
-                    Text("아직 보내지 않은 기록 \(pending.count)개").font(Brand.suit(12, .medium)).foregroundStyle(Brand.ink)
-                }
-            }
-            if !pending.isEmpty { observationList(pending, key: Self.pendingKey) }
-        }
-    }
-
-    /// 정리 하나: 묶음 줄(누르면 상세 시트)과 그 정리에 들어간 기록
-    private func batchBlock(_ batch: BatchRecord) -> some View {
-        let items = grouped[batch.id ?? 0] ?? []
-        return VStack(alignment: .leading, spacing: 0) {
-            batchHeader(batch)
-            if !items.isEmpty { observationList(items, key: batch.id ?? 0) }
-        }
-    }
-
-    private func batchHeader(_ batch: BatchRecord) -> some View {
-        let ok = batch.status == "ok"
-        return Button { selectedBatch = batch.id } label: {
-            groupRow {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 10) {
-                        pill(ok ? "성공" : "실패", color: ok ? Self.okColor : Self.failColor)
-                        Text(verbatim: "정리 #\(batch.id ?? 0)").font(Brand.suit(12, .semibold)).foregroundStyle(Brand.ink)
-                        Text(Self.hm(batch.startedAt)).font(Brand.jost(12)).foregroundStyle(Brand.gray)
-                        Text("기록 \(batch.rowCount)개, \(batch.model ?? "-"), 토큰 \(batch.promptTokens.formatted()) + \(batch.completionTokens.formatted())")
-                            .font(Brand.suit(11)).foregroundStyle(Brand.gray).lineLimit(1)
-                        Spacer(minLength: 12)
-                        Text("자세히").font(Brand.suit(11)).foregroundStyle(Brand.tabText)
-                        Image(systemName: "chevron.right").font(.system(size: 9)).foregroundStyle(Brand.gray)
-                    }
-                    if let error = batch.error, !ok {
-                        Text(AppState.friendlyModelError(error)).font(Brand.suit(11)).foregroundStyle(Self.failColor).lineLimit(2)
-                    }
-                }
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// 기록 줄 목록: 처음 몇 개만 보이고 나머지는 "더 보기" 줄로 펼친다
-    private func observationList(_ items: [Observation], key: Int64) -> some View {
-        let open = expanded.contains(key)
-        let shown = open ? items : Array(items.prefix(Self.previewCount))
-        return VStack(alignment: .leading, spacing: 0) {
-            ForEach(shown, id: \.id) { observationRow($0) }
-            if items.count > Self.previewCount {
-                Button {
-                    if open { expanded.remove(key) } else { expanded.insert(key) }
-                } label: {
-                    Text(open ? "접기" : "기록 \(items.count - Self.previewCount)개 더 보기")
-                        .font(Brand.suit(11)).foregroundStyle(Brand.gray)
-                        .padding(.horizontal, 10).frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-                        .overlay(alignment: .bottom) { hairline }
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .hoverHighlight(cornerRadius: 0)
-            }
-        }
-    }
-
-    private func observationRow(_ o: Observation) -> some View {
-        Button { selectedObservation = o.id } label: {
-            HStack(spacing: 0) {
-                cell(width: Self.timeWidth) { Text(Self.hm(o.ts)).font(Brand.jost(12)).foregroundStyle(Brand.gray) }
-                cell(width: appWidth) { Text(o.appName).font(Brand.suit(12, .medium)).foregroundStyle(Brand.ink) }
-                if showTitle { cell(width: nil) { Text(o.windowTitle ?? "").font(Brand.suit(12)).foregroundStyle(Brand.tabText).truncationMode(.tail) } }
-                if showLink { cell(width: nil) { Text(o.url ?? o.docPath ?? "").font(Brand.suit(11)).foregroundStyle(Brand.gray).truncationMode(.middle) } }
-                cell(width: Self.triggerWidth, last: true) { Text(Self.triggerName(o.trigger)).font(Brand.suit(11)).foregroundStyle(Brand.gray) }
-            }
-            .frame(height: 30)
-            .overlay(alignment: .bottom) { hairline }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .hoverHighlight(cornerRadius: 0)
-    }
-
-    private var hairline: some View { Rectangle().fill(Brand.line).frame(height: 1) }
-
-    /// 정리 상세 시트: 보낸 내용과 받은 응답
-    private func batchSheet(_ batch: BatchRecord) -> some View {
+    private var sectionTabs: some View {
         VStack(spacing: 0) {
-            BatchDetail(batch: batch, maxHeight: 490, showReceived: receivedFirst).padding(20)
-            Rectangle().fill(Brand.line).frame(height: 1)
-            HStack {
+            HStack(spacing: 24) {
+                sectionTab("수집 기록", .collected)
+                sectionTab("정리 기록", .batches)
                 Spacer()
-                Button("닫기") { selectedBatch = nil }.buttonStyle(BrandButtonStyle(kind: .secondary)).keyboardShortcut(.cancelAction)
             }
-            .padding(.horizontal, 32).frame(height: 62).background(logFill)
+            Rectangle().fill(Brand.line).frame(height: 1)
         }
-        .frame(width: 760, height: 600)
-        .background(Color.white)
+        .padding(.top, 6)
     }
 
-    static let okColor = Color(hex: 0x5E97C8)   // 대기=회색, 성공=하늘, 실패=빨강
-    static let failColor = Color(hex: 0xC0473B)
+    private func sectionTab(_ title: String, _ value: Section) -> some View {
+        let on = section == value
+        return Button { section = value } label: {
+            Text(title)
+                .font(Brand.suit(12, on ? .medium : .regular))
+                .foregroundStyle(on ? Brand.ink : Brand.gray)
+                .frame(height: 47)
+                .overlay(alignment: .bottom) { if on { Rectangle().fill(Brand.ink).frame(height: 2).offset(y: 1) } }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: 수집 기록
+
+    private var collectedSection: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("최근 수집 기록").font(Brand.suit(14)).foregroundStyle(Brand.ink)
+                Spacer()
+                Text(Self.today.string(from: Date())).font(Brand.suit(10)).foregroundStyle(Brand.gray)
+            }
+            .padding(.top, 29).padding(.bottom, 11)
+
+            if !loaded {
+                stateView(icon: nil, title: nil, message: "기록을 불러오는 중이에요")
+            } else if observationRows.isEmpty {
+                stateView(icon: "list.bullet", title: "아직 수집한 기록이 없어요",
+                          message: "앱을 오가며 작업하면 앱, 창 제목, 기록 종류가 시간 순서로 여기에 쌓여요.")
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                        SwiftUI.Section {
+                            ForEach(observationRows) { row in
+                                let o = row.observation
+                                LogRow(cells: [
+                                    LogCell(Self.time.string(from: Date(timeIntervalSince1970: o.ts)), 130),
+                                    LogCell(o.appName, 120),
+                                    LogCell(o.windowTitle ?? ""),
+                                    LogCell(o.url ?? o.docPath ?? "", color: Brand.gray),
+                                    LogCell(Self.triggerName(o.trigger), 80),
+                                    LogCell(o.textId == nil ? "" : "있음", 56, color: Brand.gray),
+                                    LogCell(o.screenshotPath == nil ? "" : "있음", 56, color: Brand.gray),
+                                    LogCell(o.batchId.map { "#\($0)" } ?? "대기", 64, color: o.batchId == nil ? Brand.ink : Brand.gray),
+                                ], selected: selectedObservation == row.id) { selectedObservation = row.id }
+                            }
+                        } header: {
+                            LogRow(cells: [
+                                LogCell("시각", 130), LogCell("앱", 120), LogCell("창 제목"), LogCell("URL / 문서"),
+                                LogCell("계기", 80), LogCell("텍스트", 56), LogCell("캡처", 56), LogCell("정리", 64),
+                            ], header: true)
+                        }
+                    }
+                }
+            }
+
+            HStack(spacing: 9) {
+                Image(systemName: "info.circle").font(.system(size: 13)).foregroundStyle(Brand.gray)
+                Text("비공개 창의 URL과 비밀번호 입력칸은 기록하지 않아요. 제외 앱은 이름과 시간만 남겨요.")
+                    .font(Brand.suit(12)).foregroundStyle(Brand.gray)
+                Spacer()
+            }
+            .padding(.vertical, 15)
+        }
+    }
+
+    // MARK: 정리 기록
+
+    private var batchSection: some View {
+        Group {
+            if !loaded {
+                stateView(icon: nil, title: nil, message: "기록을 불러오는 중이에요")
+            } else if batchRows.isEmpty {
+                stateView(icon: "list.bullet", title: "아직 정리한 기록이 없어요",
+                          message: "정리가 끝나면 AI에 보낸 내용과 받은 응답이 여기에 쌓여요.")
+            } else {
+                GeometryReader { geo in
+                    let listMin = min(geo.size.height, max(150, geo.size.height * 0.36))     // 표는 머리 줄과 세 줄 이상
+                    VStack(spacing: 16) {
+                        ScrollView {
+                            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                                SwiftUI.Section {
+                                    ForEach(batchRows) { row in
+                                        LogRow(cells: batchCells(row.batch), height: 40, selected: selectedBatch == row.id) { selectedBatch = row.id }
+                                    }
+                                } header: {
+                                    LogRow(cells: batchCells(nil), header: true)
+                                }
+                            }
+                        }
+                        .frame(minHeight: listMin, maxHeight: .infinity)
+                        if let row = batchRows.first(where: { $0.id == selectedBatch }) {
+                            BatchDetail(batch: row.batch, maxHeight: max(200, geo.size.height - listMin - 16), showReceived: receivedFirst)
+                                .layoutPriority(1)                                               // 카드가 먼저(내용 높이, 한도 안), 표는 남은 자리
+                        } else {
+                            Text("정리 기록을 선택하면 보낸 내용과 받은 응답이 보여요")
+                                .font(Brand.suit(12)).foregroundStyle(Brand.gray).frame(height: 60)
+                        }
+                    }
+                }
+                .padding(.top, 16).padding(.bottom, 20)
+            }
+        }
+    }
+
+    private func batchCells(_ batch: BatchRecord?) -> [LogCell] {
+        guard let batch else {
+            return [LogCell("#", 54), LogCell("정리 시각", 160), LogCell("결과", 80), LogCell("기록 수", 90),
+                    LogCell("모델", 180), LogCell("토큰", 160), LogCell("오류")]
+        }
+        let ok = batch.status == "ok"
+        return [
+            LogCell("\(batch.id ?? 0)", 54),
+            LogCell(Self.time.string(from: Date(timeIntervalSince1970: batch.startedAt)), 160),
+            LogCell(ok ? "성공" : "실패", 80, weight: ok ? .regular : .medium),
+            LogCell("\(batch.rowCount)", 90),
+            LogCell(batch.model ?? "", 180),
+            LogCell("\(batch.promptTokens.formatted()) + \(batch.completionTokens.formatted())", 160, color: Brand.gray),
+            LogCell(batch.error ?? ""),
+        ]
+    }
 
     // MARK: 빈 상태, 불러오는 중
 
@@ -308,6 +251,52 @@ struct ActivityLogView: View {
     }
 }
 
+// MARK: 표 부품
+
+private struct LogCell {
+    let text: String
+    var width: CGFloat?
+    var color: Color = Brand.ink
+    var weight: Brand.Weight = .regular
+
+    init(_ text: String, _ width: CGFloat? = nil, color: Color = Brand.ink, weight: Brand.Weight = .regular) {
+        self.text = text
+        self.width = width
+        self.color = color
+        self.weight = weight
+    }
+}
+
+/// 표 한 줄: 머리 줄은 옅은 바탕 11 회색, 본문 줄은 12 먹, 아래 구분선, 선택 줄은 옅은 바탕.
+private struct LogRow: View {
+    let cells: [LogCell]
+    var header = false
+    var height: CGFloat = 44
+    var selected = false
+    var onTap: (() -> Void)?
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(cells.indices, id: \.self) { i in
+                let cell = cells[i]
+                Text(cell.text)
+                    .font(Brand.suit(header ? 11 : 12, cell.weight))
+                    .foregroundStyle(header ? Brand.gray : cell.color)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .padding(.horizontal, 8)
+                    .frame(minWidth: cell.width, maxWidth: cell.width ?? .infinity, alignment: .leading)
+            }
+        }
+        .padding(.horizontal, 8)
+        .frame(height: header ? 36 : height)
+        .background(header || selected ? logFill : Color.clear)
+        .overlay(alignment: .bottom) { if !header { Rectangle().fill(Brand.line).frame(height: 1) } }
+        .contentShape(Rectangle())
+        .onTapGesture { onTap?() }
+    }
+}
+
 // MARK: 수집 기록 원문 시트
 
 /// 관측 행 하나: 모든 필드, 화면 텍스트 전문, 스크린샷.
@@ -329,7 +318,8 @@ struct ObservationDetail: View {
         VStack(spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("수집 기록 원문").font(Brand.suit(22, .bold)).foregroundStyle(Brand.ink)
+                    Eyebrow("Collected record")
+                    Text("수집 기록 원문").font(Brand.suit(22, .bold)).foregroundStyle(Brand.ink).padding(.top, 8)
                     Text("관측 행 #\(observation.id ?? 0)").font(Brand.suit(12)).foregroundStyle(Brand.gray).padding(.top, 10)
                 }
                 Spacer()
@@ -372,6 +362,7 @@ struct ObservationDetail: View {
                             if let image {
                                 Image(nsImage: image).resizable().aspectRatio(contentMode: .fit)
                                     .clipShape(RoundedRectangle(cornerRadius: 6))
+                                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Brand.line))
                             } else if imageLoading {
                                 ProgressView().controlSize(.small)
                                     .frame(maxWidth: .infinity).frame(height: 110)
@@ -492,17 +483,12 @@ private struct BatchDetail: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 0) {
-                    HStack(spacing: 8) {
-                        Text("정리 #\(batch.id ?? 0)").font(Brand.suit(16, .bold)).foregroundStyle(Brand.ink)
-                        let ok = batch.status == "ok"
-                        Text(ok ? "성공" : "실패").font(Brand.suit(11, .semibold))
-                            .foregroundStyle(ok ? ActivityLogView.okColor : ActivityLogView.failColor)
-                            .padding(.horizontal, 8).padding(.vertical, 2)
-                            .background(Capsule().fill((ok ? ActivityLogView.okColor : ActivityLogView.failColor).opacity(0.1)))
-                    }
+                    Eyebrow("LLM exchange")
+                    Text("정리 #\(batch.id ?? 0), \(batch.status == "ok" ? "성공" : "실패")")
+                        .font(Brand.suit(16, .bold)).foregroundStyle(Brand.ink).padding(.top, 6)
                     Text("\(Self.time.string(from: Date(timeIntervalSince1970: batch.startedAt))), \(batch.model ?? "-"), 행 \(batch.rowCount)개, 토큰 \(batch.promptTokens.formatted()) + \(batch.completionTokens.formatted())")
                         .font(Brand.suit(12)).foregroundStyle(Brand.gray).padding(.top, 10)
-                    if let error = batch.error { summaryLine("오류", AppState.friendlyModelError(error)) }
+                    if let error = batch.error { summaryLine("오류", error) }
                     if let stats = batch.stats { summaryLine("반영 결과", ApplyStats.summary(json: stats) ?? stats) }
                 }
                 Spacer(minLength: 16)
@@ -519,6 +505,7 @@ private struct BatchDetail: View {
         }
         .frame(maxHeight: maxHeight)
         .onPreferenceChange(HeaderHeight.self) { if $0 > 0 { headerHeight = $0 } }
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Brand.line))
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .onChange(of: batch.id, initial: true) { _, _ in
             let started = Date()
@@ -554,6 +541,7 @@ private struct BatchDetail: View {
             toggleItem("받은 응답", on: showReceived) { showReceived = true }
         }
         .padding(2)
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Brand.line))
     }
 
     private func toggleItem(_ title: String, on: Bool, action: @escaping () -> Void) -> some View {

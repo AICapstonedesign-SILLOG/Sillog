@@ -203,9 +203,9 @@ private struct MenuBarDashboard: View {
     /// TODAY·WAITING: 눈썹 글씨 17, 숫자 76 (Jost 200 54), 설명 15. 사이에 세로선
     private var stats: some View {
         HStack(alignment: .top, spacing: 0) {
-            number("오늘", state.todayCount, "오늘 기록").frame(width: 149, alignment: .leading)
+            number("TODAY", state.todayCount, "오늘 기록").frame(width: 149, alignment: .leading)
             Rectangle().fill(Brand.hairline).frame(width: 1, height: 107)
-            number("대기", state.pendingCount, "정리 대기").padding(.leading, 23)
+            number("WAITING", state.pendingCount, "정리 대기").padding(.leading, 23)
             Spacer(minLength: 0)
         }
         .padding(.top, 21)
@@ -224,28 +224,26 @@ private struct MenuBarDashboard: View {
         }
     }
 
-    /// 알림 권한이 꺼져 있으면: 누르면 설정의 일반(권한 칸)
+    /// 알림 권한이 꺼져 있으면: 누르면 시스템 설정의 알림
     private var notificationRow: some View {
-        Button {
-            state.selectedTab = .settings; state.settingsSection = .record
-            openMain()
-        } label: {
+        Button { SuggestionNotifier.openSystemSettings() } label: {
             HStack(spacing: 8) {
-                Text("알림 꺼짐").font(Brand.suit(10)).foregroundStyle(Brand.tabText)
+                Image(systemName: "exclamationmark.circle").font(.system(size: 14)).foregroundStyle(Brand.ink)
+                Text("파일 제안 알림 권한이 꺼져 있어요").font(Brand.suit(10)).foregroundStyle(Brand.tabText)
                 Spacer()
                 Image(systemName: "arrow.up.right").font(.system(size: 10)).foregroundStyle(Brand.tabText)
             }
-            .frame(height: 36)
+            .frame(height: 45)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .overlay(alignment: .bottom) { hairline }
     }
 
-    /// 파일 정리 제안이 있으면: 누르면 설정의 파일 구역
+    /// 파일 정리 제안이 있으면: 누르면 파일 탭
     private var fileRow: some View {
         Button {
-            state.selectedTab = .settings; state.settingsSection = .fileList
+            state.selectedTab = .files
             openMain()
         } label: {
             HStack(spacing: 0) {
@@ -265,7 +263,7 @@ private struct MenuBarDashboard: View {
     /// 최근 업무 3개. 누르면 다시 열기 (prepareResume 이 창을 연다)
     private var recentWork: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Eyebrow("최근 업무").frame(height: 17, alignment: .leading)
+            Eyebrow("RECENT WORK").frame(height: 17, alignment: .leading)
             Text("최근 업무 다시 열기").font(Brand.suit(10)).foregroundStyle(Brand.gray).padding(.top, 5)
             VStack(alignment: .leading, spacing: 20) {
                 ForEach(state.taskList.prefix(3)) { task in

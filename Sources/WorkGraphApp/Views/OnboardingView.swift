@@ -74,15 +74,19 @@ struct OnboardingSheet: View {
         .onReceive(poll) { _ in if step == .permissions { state.refreshPermissionGrants() } }
     }
 
-    // MARK: 머리 (76, 제목 한 줄)
+    // MARK: 머리 (105)
 
     private var header: some View {
-        Text(step == .login ? "당신의 일을 기억하는 시작" : "기록을 위한 두 가지 권한")
-            .font(Brand.suit(22)).tracking(-0.77).foregroundStyle(Brand.ink)
-            .padding(.leading, 28)
-            .frame(maxWidth: .infinity, minHeight: 76, maxHeight: 76, alignment: .leading)
+        VStack(alignment: .leading, spacing: 0) {
+            Eyebrow(step == .login ? "GET STARTED / 01" : "GET STARTED / 02").frame(height: 17, alignment: .leading)
+            Text(step == .login ? "당신의 일을 기억하는 시작" : "기록을 위한 두 가지 권한")
+                .font(Brand.suit(22)).tracking(-0.77).foregroundStyle(Brand.ink)
+                .padding(.top, 9)
+        }
+        .padding(.leading, 28).padding(.top, 26)
+        .frame(maxWidth: .infinity, minHeight: 105, maxHeight: 105, alignment: .topLeading)
         .background(.white.opacity(0.95))
-        .overlay(alignment: .trailing) {
+        .overlay(alignment: .topTrailing) {
             // 닫기: 창만 닫는다. 메뉴 막대는 준비 전(W2)으로 남고, 거기서 다시 열 수 있다
             Button {
                 state.closeOnboarding()
@@ -93,7 +97,7 @@ struct OnboardingSheet: View {
             }
             .buttonStyle(.plain)
             .help("닫기").accessibilityLabel("닫기")
-            .padding(.trailing, 18)
+            .padding(.top, 19).padding(.trailing, 18)
         }
         .overlay(alignment: .bottom) { Rectangle().fill(Brand.hairline).frame(height: 1) }
     }
@@ -169,7 +173,7 @@ struct OnboardingSheet: View {
 
     private func deviceCodeBox(_ code: DeviceCode) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Eyebrow("기기 코드").frame(height: 17, alignment: .leading)
+            Eyebrow("DEVICE CODE").frame(height: 17, alignment: .leading)
             HStack {
                 Text(code.userCode).font(Brand.jost(23)).tracking(2.99).foregroundStyle(Brand.ink).textSelection(.enabled)
                 Spacer()
@@ -192,7 +196,7 @@ struct OnboardingSheet: View {
     /// 로그인을 마친 뒤: 로그인 버튼 자리에 연결한 계정 (Figma 에 없는 상태)
     private var signedInBox: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Eyebrow("로그인됨").frame(height: 17, alignment: .leading)
+            Eyebrow("SIGNED IN").frame(height: 17, alignment: .leading)
             HStack(spacing: 8) {
                 Image(systemName: "checkmark").font(.system(size: 12, weight: .medium))
                 Text(signedInName).font(Brand.suit(15, .medium)).lineLimit(1)
