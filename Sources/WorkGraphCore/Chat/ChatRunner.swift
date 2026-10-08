@@ -115,6 +115,25 @@ public enum ChatBackend: Sendable {
         return String(title.prefix(25))
     }
 
+    /// Args: transcript는 "질문/답" 순서로 이어 붙인 대화 원문이다.
+    /// Returns: 대화 전체를 두 문장 안으로 줄인 한국어 요약.
+    /// Raises: 인증·연결 오류, 빈 응답.
+    public func conversationSummary(for transcript: String) async throws -> String {
+        let system = "다음 대화가 무엇을 다뤘고 어떤 결과가 나왔는지 한국어 두 문장 이내, 90자 안으로 요약하세요. 사무적인 문체로 쓰고 따옴표, 목록 기호, 머리말은 넣지 마세요. 대화를 이어서 답하지 말고 요약만 답하세요."
+        let messages = [ChatModelMessage(role: "user", text: String(transcript.suffix(6000)))]
+        let response: String
+        switch self {
+        case .model(let client):
+            response = try await client.respond(system: system, messages: messages, tools: []) { _ in }.text
+        case .codex(let client):
+            response = try await client.run(system: system, messages: messages, tools: [], useWeb: false,
+                                            execute: { _ in "" }, onEvent: { _ in })
+        }
+        let summary = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !summary.isEmpty else { throw LLMError.backend("대화 요약이 비어 있습니다.") }
+        return String(summary.prefix(140))
+    }
+
     /// Args: 없음.
     /// Returns: 없음. 개인 자료 없이 모델과 도구 연결을 확인한다.
     /// Raises: 인증·연결·도구 응답 오류.

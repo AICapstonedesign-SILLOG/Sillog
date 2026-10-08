@@ -66,8 +66,6 @@ struct ProjectOverview<Composer: View>: View {
                     } label: {
                         Image(systemName: "ellipsis").font(.system(size: 14)).foregroundStyle(Brand.tabText)
                             .frame(width: 30, height: 30)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(.white))
-                            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Brand.line))
                     }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                         .help("프로젝트 메뉴").accessibilityLabel("프로젝트 메뉴")
                 }
@@ -210,7 +208,7 @@ struct ProjectEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            LibrarySheetHeader(eyebrow: "PROJECT", title: project == nil ? "프로젝트 만들기" : "프로젝트 설정") { dismiss() }
+            LibrarySheetHeader(title: project == nil ? "프로젝트 만들기" : "프로젝트 설정") { dismiss() }
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     VStack(alignment: .leading, spacing: 8) {
@@ -334,7 +332,7 @@ struct ProjectProposalsSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            LibrarySheetHeader(eyebrow: "PROJECT PROPOSALS", title: "프로젝트 제안",
+            LibrarySheetHeader(title: "프로젝트 제안",
                                detail: "관련 있는 업무와 채팅을 함께 묶어 제안합니다. 수락한 항목만 프로젝트에 들어갑니다.") { dismiss() }
             VStack(alignment: .leading, spacing: 12) {
                 if let error = projects.error { Text(error).font(Brand.suit(12)).foregroundStyle(.red).textSelection(.enabled) }
@@ -405,6 +403,5 @@ private struct ProjectProposalCard: View {
             }.font(Brand.suit(11, .medium)).padding(.top, 4)
         }.padding(16)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0xF6F5F4)))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Brand.line))
     }
 }

@@ -2,9 +2,8 @@ import SwiftUI
 import Quartz
 import WorkGraphCore
 
-/// 시트 머리: 눈썹 글씨, 제목(22), 설명(12), 닫기 버튼. 유리 판 바탕에 아래 구분선 (Figma 자료 연결 시트)
+/// 시트 머리: 제목(22), 설명(12), 닫기 버튼. 유리 판 바탕에 아래 구분선 (Figma 자료 연결 시트)
 struct LibrarySheetHeader: View {
-    let eyebrow: String
     let title: String
     var detail: String? = nil
     var onClose: () -> Void
@@ -12,8 +11,7 @@ struct LibrarySheetHeader: View {
     var body: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 0) {
-                Eyebrow(eyebrow)
-                Text(title).font(Brand.suit(22)).tracking(-0.77).foregroundStyle(Brand.ink).padding(.top, 8)
+                Text(title).font(Brand.suit(22)).tracking(-0.77).foregroundStyle(Brand.ink)
                 if let detail { Text(detail).font(Brand.suit(12)).foregroundStyle(Brand.gray).padding(.top, 6) }
             }
             Spacer(minLength: 12)
@@ -35,8 +33,6 @@ private struct LibraryTile: View {
     var body: some View {
         Image(systemName: symbol).font(.system(size: 14)).foregroundStyle(Brand.ink)
             .frame(width: 30, height: 30)
-            .background(RoundedRectangle(cornerRadius: 5).fill(Color(hex: 0xF6F5F4)))
-            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Brand.line))
     }
 }
 
@@ -48,6 +44,7 @@ struct LibraryView: View {
     @State private var projectID = ""
     @State private var preview: ChatLibraryItem?
     @State private var deleting: ChatLibraryItem?
+    @FocusState private var searchFocused: Bool
 
     private var filtered: [ChatLibraryItem] {
         library.items.filter { item in
@@ -56,11 +53,7 @@ struct LibraryView: View {
         }
     }
     var body: some View {
-        HStack(spacing: 0) {
-            sidebar
-            Rectangle().fill(Brand.hairline).frame(width: 1)
-            content
-        }
+        content
         .sheet(item: $preview) { LibraryPreview(library: library, item: $0) }
         .alert("자료를 삭제할까요?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
             Button("취소", role: .cancel) { deleting = nil }
@@ -69,107 +62,126 @@ struct LibraryView: View {
         .onChange(of: projects.projects) { _, values in if !values.contains(where: { $0.id == projectID }) { projectID = "" } }
     }
 
-    /// 채팅 화면과 같은 유리 사이드바: 눈썹 글씨, 제목, 파일 올리기 버튼, 종류와 프로젝트 필터
-    private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Eyebrow("YOUR LIBRARY").padding(.top, 27)
-            Text("보관함").font(Brand.suit(23, .semibold)).tracking(-0.805).foregroundStyle(Brand.ink).padding(.top, 8)
-            Button { library.importFiles() } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "plus").font(.system(size: 12))
-                    Text("파일 업로드").font(Brand.suit(12, .medium))
-                }.foregroundStyle(Brand.tabText).frame(maxWidth: .infinity).frame(height: 38)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(.white.opacity(0.33)))
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
-                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Brand.line))
-            }.buttonStyle(.plain).disabled(library.busy).padding(.top, 18)
-            Eyebrow("KIND").padding(.top, 26).padding(.leading, 12)
-            VStack(spacing: 2) {
-                filterRow("전체 종류", kind.isEmpty) { kind = "" }
-                filterRow("업로드", kind == "upload") { kind = "upload" }
-                filterRow("생성한 결과물", kind == "generated") { kind = "generated" }
-                filterRow("저장한 답변", kind == "note") { kind = "note" }
-            }.padding(.top, 8)
-            Eyebrow("PROJECT").padding(.top, 22).padding(.leading, 12)
-            ScrollView {
-                VStack(spacing: 2) {
-                    filterRow("전체 프로젝트", projectID.isEmpty) { projectID = "" }
-                    ForEach(projects.projects) { project in
-                        filterRow(project.title, projectID == project.id) { projectID = project.id }
-                    }
-                }
-            }.padding(.top, 8)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
-        .frame(width: 249).frame(maxHeight: .infinity)
-        .brandGlass()
-    }
-
-    private func filterRow(_ title: String, _ on: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title).font(Brand.suit(11, on ? .medium : .regular)).foregroundStyle(on ? Brand.ink : Brand.tabText).lineLimit(1)
-                .padding(.horizontal, 12).frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-                .glassPill(on, cornerRadius: 5).contentShape(Rectangle())
-        }.buttonStyle(.plain)
-    }
+    /// 종류 탭: 전체 / 업로드 / 생성한 결과물 / 저장한 답변
+    private static let kinds: [(id: String, label: String)] = [("", "전체"), ("upload", "업로드"), ("generated", "생성한 결과물"), ("note", "저장한 답변")]
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
-            BrandPageHeader(eyebrow: "LIBRARY", title: "자료 보관함",
-                            detail: "업로드한 파일, 생성한 결과물과 저장한 답변을 모아 관리합니다. 프로젝트나 대화에 연결한 자료만 답변에 사용합니다.") {
+            BrandPageHeader(title: "자료 보관함") {
                 if library.busy { ProgressView().controlSize(.small) }
             }
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Brand.gray)
-                TextField("자료 이름 검색", text: $query).textFieldStyle(.plain).font(Brand.suit(12)).foregroundStyle(Brand.text)
-            }.brandField().padding(.horizontal, 34).padding(.top, 16)
+            filterBar
             if let error = library.error {
                 Text(error).font(Brand.suit(12)).foregroundStyle(.red).textSelection(.enabled).padding(.horizontal, 34).padding(.top, 10)
             }
             if filtered.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "tray").font(.system(size: 26, weight: .light)).foregroundStyle(Brand.sub)
-                    Text(library.items.isEmpty ? "보관한 자료가 없습니다" : "검색 결과가 없습니다").font(Brand.suit(14, .medium)).foregroundStyle(Brand.ink)
-                    Text("파일을 업로드하거나 채팅에서 결과물을 만들어보세요.").font(Brand.suit(12)).foregroundStyle(Brand.gray)
+                VStack(spacing: 10) {
+                    Image(systemName: "tray").font(.system(size: 26, weight: .light)).foregroundStyle(Brand.line)
+                    Text(library.items.isEmpty ? "보관한 자료가 없습니다" : "조건에 맞는 자료가 없습니다").font(Brand.suit(12)).foregroundStyle(Brand.gray)
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 0) { ForEach(filtered) { row($0) } }.padding(.horizontal, 34).padding(.top, 6)
+                    LazyVStack(spacing: 0) { ForEach(filtered) { row($0) } }.padding(.horizontal, 26).padding(.top, 6)
                 }
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity).background(.white)
     }
 
-    private func row(_ item: ChatLibraryItem) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            Button { preview = item } label: {
-                HStack(spacing: 12) {
-                    LibraryTile(symbol: item.kind == "note" ? "text.book.closed" : "doc.text")
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(item.title).font(Brand.suit(12, .medium)).foregroundStyle(Brand.tabText).lineLimit(1)
-                        Text("\(item.filename)  \(Date(timeIntervalSince1970: item.createdAt).formatted(date: .abbreviated, time: .shortened))")
-                            .font(Brand.suit(10)).foregroundStyle(Brand.gray)
-                        let names = projects.projects.filter { library.projectIDs(item).contains($0.id) }.map(\.title)
-                        if !names.isEmpty { Text(names.joined(separator: ", ")).font(Brand.suit(10)).foregroundStyle(Brand.gray) }
-                        if !item.extractionNote.isEmpty { Text(item.extractionNote).font(Brand.suit(10)).foregroundStyle(Brand.gray) }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                }.contentShape(Rectangle())
-            }.buttonStyle(.plain)
-            Menu {
-                Menu("프로젝트에서 사용") {
-                    ForEach(projects.projects) { project in
-                        let linked = library.projectIDs(item).contains(project.id)
-                        Button(linked ? "\(project.title)에서 연결 해제" : project.title) {
-                            if linked { library.detach(item, projectID: project.id) } else { library.attach(item, projectID: project.id) }
-                        }
-                    }
+    /// 한 줄 필터 막대: 왼쪽 종류 글자 탭, 오른쪽은 그래프 도구 줄과 같은 업로드, 필터 알약과 밑줄 검색칸. 아래 1px 선만 둔다
+    private var filterBar: some View {
+        HStack(spacing: 4) {
+            ForEach(Self.kinds, id: \.id) { option in
+                let on = kind == option.id
+                Button { kind = option.id } label: {
+                    Text(option.label).font(Brand.suit(12, on ? .medium : .regular))
+                        .foregroundStyle(on ? Brand.ink : Brand.tabText)
+                        .padding(.horizontal, 12).frame(height: 26)
+                        .background(Capsule().fill(on ? ChatPalette.soft : .clear))
+                        .contentShape(Capsule())
+                }.buttonStyle(.plain).hoverHighlight(cornerRadius: 13, active: !on)
+            }
+            Spacer(minLength: 16)
+            Button { library.importFiles() } label: {
+                toolPill(icon: "plus", title: "파일 업로드")
+            }.buttonStyle(.plain).hoverHighlight(cornerRadius: 15).disabled(library.busy)
+            projectMenu
+            HStack(spacing: 7) {                                 // 그래프 검색칸: 테두리 없이 밑줄, 돋보기는 오른쪽
+                TextField("자료 이름 검색", text: $query).textFieldStyle(.plain).font(Brand.suit(13)).foregroundStyle(Brand.text)
+                    .focused($searchFocused)
+                Image(systemName: "magnifyingglass").font(.system(size: 13)).foregroundStyle(searchFocused ? Brand.text : Brand.gray)
+            }
+            .frame(width: 260, height: 34)
+            .overlay(alignment: .bottom) { Rectangle().fill(Brand.ink.opacity(searchFocused ? 0.45 : 0.14)).frame(height: 1).padding(.bottom, 2) }
+            .padding(.leading, 12)
+        }
+        .padding(.horizontal, 34).padding(.vertical, 10)
+        .overlay(alignment: .bottom) { Rectangle().fill(Brand.line).frame(height: 1) }
+    }
+
+    /// 그래프 도구 줄의 필터 단추와 같은 알약: 아이콘과 회색 글씨, 커서를 대면 옅은 바탕
+    private func toolPill(icon: String, title: String, dot: Bool = false) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon).font(.system(size: 12))
+            Text(title).font(Brand.suit(12.5))
+            if dot { Circle().fill(Color(hex: 0x8FB4CF)).frame(width: 6, height: 6) }
+        }
+        .foregroundStyle(Brand.gray)
+        .padding(.horizontal, 12).frame(height: 30).contentShape(Capsule())
+    }
+
+    /// 프로젝트 필터: 그래프처럼 "필터" 알약, 고르면 하늘색 점
+    private var projectMenu: some View {
+        Menu {
+            Picker("프로젝트", selection: $projectID) {
+                Text("프로젝트 전체").tag("")
+                ForEach(projects.projects) { Text($0.title).tag($0.id) }
+            }.pickerStyle(.inline)
+        } label: {
+            toolPill(icon: "line.3.horizontal.decrease", title: "필터", dot: !projectID.isEmpty)
+        }.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize().hoverHighlight(cornerRadius: 15)
+    }
+
+    private func icon(_ item: ChatLibraryItem) -> String {
+        item.kind == "upload" ? "arrow.up.doc" : item.kind == "note" ? "text.quote" : "doc.richtext"
+    }
+
+    /// 항목 동작 (점 세 개 메뉴와 오른쪽 클릭 메뉴가 같이 쓴다)
+    @ViewBuilder private func actions(_ item: ChatLibraryItem) -> some View {
+        Menu("프로젝트에서 사용") {
+            ForEach(projects.projects) { project in
+                let linked = library.projectIDs(item).contains(project.id)
+                Button(linked ? "\(project.title)에서 연결 해제" : project.title) {
+                    if linked { library.detach(item, projectID: project.id) } else { library.attach(item, projectID: project.id) }
                 }
-                Button("파일 내보내기") { library.export(item) }
-                Button("보관함에서 삭제", role: .destructive) { deleting = item }
-            } label: { Image(systemName: "ellipsis").foregroundStyle(Brand.gray) }.menuStyle(.borderlessButton).frame(width: 30)
-        }.padding(.vertical, 14)
-            .overlay(alignment: .bottom) { Rectangle().fill(Brand.line).frame(height: 1) }
+            }
+        }
+        Button("파일 내보내기") { library.export(item) }
+        Button("보관함에서 삭제", role: .destructive) { deleting = item }
+    }
+
+    private func row(_ item: ChatLibraryItem) -> some View {
+        let names = projects.projects.filter { library.projectIDs(item).contains($0.id) }.map(\.title)
+        let detail: [String] = (names.isEmpty ? [] : [names.joined(separator: ", ")])
+            + [item.filename, Date(timeIntervalSince1970: item.createdAt).formatted(date: .abbreviated, time: .shortened)]
+        return VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 8) {
+                Button { preview = item } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: icon(item)).font(.system(size: 14, weight: .light)).foregroundStyle(Brand.tabText).frame(width: 20)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(item.title).font(Brand.suit(13)).foregroundStyle(Brand.ink).lineLimit(1)
+                            Text(detail.joined(separator: " / ")).font(Brand.suit(11)).foregroundStyle(Brand.gray).lineLimit(1)
+                            if !item.extractionNote.isEmpty { Text(item.extractionNote).font(Brand.suit(11)).foregroundStyle(Brand.gray) }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }.padding(.vertical, 12).contentShape(Rectangle())
+                }.buttonStyle(.plain)
+                Menu { actions(item) } label: { Image(systemName: "ellipsis").foregroundStyle(Brand.gray) }
+                    .menuStyle(.borderlessButton).menuIndicator(.hidden).frame(width: 30)
+            }.padding(.horizontal, 8)
+                .hoverHighlight(cornerRadius: 8)
+                .contextMenu { actions(item) }
+            Rectangle().fill(Brand.line).frame(height: 1).padding(.horizontal, 8)
+        }
     }
 }
 
@@ -191,8 +203,14 @@ struct LibraryPreview: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Text(item.title).font(Brand.suit(14, .medium)).foregroundStyle(Brand.ink).lineLimit(1); Spacer()
-                Button("파일 내보내기") { library.export(item) }.buttonStyle(BrandButtonStyle())
-                Button("닫기") { dismiss() }.buttonStyle(BrandButtonStyle())
+                Button { library.export(item) } label: {
+                    Text("파일 내보내기").font(Brand.suit(12)).foregroundStyle(Brand.tabText)
+                        .padding(.horizontal, 10).frame(height: 28).contentShape(Rectangle())
+                }.buttonStyle(.plain).hoverHighlight(cornerRadius: 8)
+                Button { dismiss() } label: {
+                    Text("닫기").font(Brand.suit(12)).foregroundStyle(Brand.tabText)
+                        .padding(.horizontal, 10).frame(height: 28).contentShape(Rectangle())
+                }.buttonStyle(.plain).hoverHighlight(cornerRadius: 8)
             }.padding(.horizontal, 24).frame(height: 56)
             Rectangle().fill(Brand.line).frame(height: 1)
             LibraryQuickLook(url: library.store.url(for: item))
@@ -219,11 +237,12 @@ struct LibraryPicker: View {
     @State private var query = ""
     var body: some View {
         VStack(spacing: 0) {
-            LibrarySheetHeader(eyebrow: "CONTEXT SOURCES", title: "보관함에서 선택", detail: "연결한 자료만 답변에 사용해요.") { dismiss() }
+            LibrarySheetHeader(title: "보관함에서 선택", detail: "연결한 자료만 답변에 사용해요.") { dismiss() }
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Brand.gray)
                 TextField("자료 이름 검색", text: $query).textFieldStyle(.plain).font(Brand.suit(12)).foregroundStyle(Brand.text)
-            }.brandField().padding(.horizontal, 27).padding(.top, 16)
+            }.padding(.vertical, 10).overlay(alignment: .bottom) { Rectangle().fill(Brand.line).frame(height: 1) }
+                .padding(.horizontal, 27).padding(.top, 8)
             ScrollView {
                 LazyVStack(spacing: 0) {
                     let items = library.items.filter { query.isEmpty || $0.title.localizedCaseInsensitiveContains(query) }
@@ -237,14 +256,17 @@ struct LibraryPicker: View {
                             }.padding(.vertical, 12).frame(maxWidth: .infinity, alignment: .leading)
                                 .overlay(alignment: .bottom) { Rectangle().fill(Brand.line).frame(height: 1) }
                                 .contentShape(Rectangle())
-                        }.buttonStyle(.plain)
+                        }.buttonStyle(.plain).hoverHighlight(cornerRadius: 8)
                     }
                     if items.isEmpty { Text(library.items.isEmpty ? "보관한 자료가 없습니다" : "검색 결과가 없습니다").font(Brand.suit(12)).foregroundStyle(Brand.gray).padding(28) }
                 }.padding(.horizontal, 27).padding(.top, 4)
             }
             HStack {
                 Spacer()
-                Button("완료") { dismiss() }.buttonStyle(BrandButtonStyle(kind: .primary))
+                Button { dismiss() } label: {
+                    Text("완료").font(Brand.suit(12, .medium)).foregroundStyle(Brand.ink)
+                        .padding(.horizontal, 12).frame(height: 28).contentShape(Rectangle())
+                }.buttonStyle(.plain).hoverHighlight(cornerRadius: 8)
             }.padding(.horizontal, 24).frame(height: 63)
                 .brandGlass()
                 .overlay(alignment: .top) { Rectangle().fill(Brand.hairline).frame(height: 1) }
@@ -312,8 +334,6 @@ struct ProjectSourcesView: View {
                             Image(systemName: item.kind == "note" ? "text.bubble" : "doc.text").font(.system(size: 14))
                             if item.kind != "note" { Text(String(ext.uppercased().prefix(5))).font(Brand.jost(8)) }
                         }.foregroundStyle(Brand.ink).frame(width: 36, height: 40)
-                            .background(RoundedRectangle(cornerRadius: 5).fill(Color(hex: 0xF6F5F4)))
-                            .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Brand.line))
                         VStack(alignment: .leading, spacing: 4) {
                             Text(item.title).font(Brand.suit(12, .medium)).foregroundStyle(Brand.tabText).lineLimit(1)
                             Text(item.kind == "note" ? "저장한 답변" : item.kind == "generated" ? "생성한 파일" : "파일")
@@ -330,7 +350,7 @@ struct ProjectSourcesView: View {
                     .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                     .opacity(hoveredSource == item.id ? 1 : 0).accessibilityLabel("\(item.title) 소스 메뉴")
             }.padding(.horizontal, 16)
-                .background(hoveredSource == item.id ? Color(hex: 0xF6F5F4) : .clear, in: RoundedRectangle(cornerRadius: 8))
+                .background(hoveredSource == item.id ? ChatPalette.soft : .clear, in: RoundedRectangle(cornerRadius: 8))
                 .onHover { hoveredSource = $0 ? item.id : nil }
                 .contextMenu {
                     Button("파일 내보내기") { library.export(item) }
@@ -345,8 +365,6 @@ struct ProjectSourcesView: View {
             HStack(spacing: 12) {
                 Image(systemName: "folder").font(.system(size: 15)).foregroundStyle(Brand.ink)
                     .frame(width: 36, height: 40)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(Color(hex: 0xF6F5F4)))
-                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Brand.line))
                 VStack(alignment: .leading, spacing: 4) {
                     Text(URL(fileURLWithPath: path).lastPathComponent).font(Brand.suit(12, .medium)).foregroundStyle(Brand.tabText).lineLimit(1)
                     Text("원본 연결, 파일을 복사하지 않고 참고합니다").font(Brand.suit(10)).foregroundStyle(Brand.gray)
@@ -358,7 +376,7 @@ struct ProjectSourcesView: View {
                     .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                     .opacity(hoveredSource == path ? 1 : 0).accessibilityLabel("폴더 소스 메뉴")
             }.padding(.horizontal, 16).padding(.vertical, 12).help(path)
-                .background(hoveredSource == path ? Color(hex: 0xF6F5F4) : .clear, in: RoundedRectangle(cornerRadius: 8))
+                .background(hoveredSource == path ? ChatPalette.soft : .clear, in: RoundedRectangle(cornerRadius: 8))
                 .onHover { hoveredSource = $0 ? path : nil }
                 .contextMenu { Button("프로젝트에서 제거") { projects.disconnect(path, from: project) } }
             Rectangle().fill(Brand.line).frame(height: 1)

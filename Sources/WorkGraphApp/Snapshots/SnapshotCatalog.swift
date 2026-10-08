@@ -52,13 +52,13 @@ enum SnapshotCatalog {
             shot("OUT-W1", MainWindow(), size: window) { s in s.phase = .login; s.loginBlocked = true },
             shot("OUT-W3", MainWindow(), size: window) { s in s.startupError = AppState.alreadyRunningMessage },
             shot("OUT-W4", MainWindow(), size: window) { s in s.bootstrapped = false },
-            // 업무 탭: 분야 폴더 안에 업무 (파일 트리)
-            shot("TK-01", MainWindow(), size: window) { s in
-                s.phase = .ready; s.status = collector(); s.selectedTab = .tasks; s.taskList = themedTasks
+            // 업무 패널(열린 채 고정): 분야 폴더 안에 업무 (파일 트리)
+            shot("TK-01", TasksDock(pinned: true), size: window) { s in
+                s.phase = .ready; s.status = collector(); s.taskList = themedTasks
             },
             shot("OUT-W5", MainWindow(), size: window) { s in
                 s.phase = .ready; s.status = collector(); s.batchRunning = true; s.pendingCount = 6
-                s.fileSuggestions = pendingFiles(2); s.taskList = recentTasks; s.selectedTab = .tasks
+                s.fileSuggestions = pendingFiles(2); s.taskList = recentTasks; s.selectedTab = .settings
             },
         ]
     }
@@ -89,7 +89,7 @@ enum SnapshotCatalog {
     /// 저장 공간 설정(기본·항목별 보관일 펼침), 첫 정리 동의 시트, 업무 요약 탭
     static var storage: [Snapshot] {
         [
-            shot("ST-STORAGE", SettingsView(section: .storage), size: window) { s in storageState(s) },
+            shot("ST-STORAGE", SettingsView(), size: window) { s in storageState(s); s.settingsSection = .record },
             shot("ST-STORAGE-ADVANCED", ScrollView { StorageSettingsView(advanced: true).padding(.horizontal, 34).padding(.bottom, 40) }.background(.white),
                  size: CGSize(width: 946, height: 1500)) { s in storageState(s) },
             shot("ST-CLEANUP-CONSENT", CleanupPreviewSheet(preview: sampleCleanup)) { s in storageState(s) },
@@ -169,7 +169,7 @@ enum SnapshotCatalog {
             for var digest in sampleDigests { digest.id = nil; try DigestStore.save(conn, digest) }
             taskId = task
         }
-        let state = AppState(preview: { s in s.phase = .ready; s.status = collector(); s.selectedTab = .tasks }, database: database)
+        let state = AppState(preview: { s in s.phase = .ready; s.status = collector() }, database: database)
         return Snapshot(name: name, size: window, view: AnyView(TasksView(selectedTask: taskId, showingDigests: true).environmentObject(state)))
     }
 
@@ -206,14 +206,14 @@ enum SnapshotCatalog {
         return Snapshot(name: name, size: size, view: AnyView(view.environmentObject(state)))
     }
 
-    /// 시트 뒤에는 업무 탭(그래프 탭은 웹 보기라 스냅샷에 안 그려진다)
+    /// 시트 뒤에는 설정 탭(그래프 탭은 웹 보기라 스냅샷에 안 그려진다)
     private static func loginStep(_ s: AppState) {
-        s.phase = .login; s.onboardingStep = .login; s.selectedTab = .tasks
+        s.phase = .login; s.onboardingStep = .login; s.selectedTab = .settings
         s.taskList = recentTasks; s.fileSuggestions = pendingFiles(2); s.pendingCount = 6
     }
 
     private static func permissionStep(_ s: AppState, _ grants: PermissionGrants) {
-        s.phase = .permissions; s.onboardingStep = .permissions; s.permissionGrants = grants; s.selectedTab = .tasks
+        s.phase = .permissions; s.onboardingStep = .permissions; s.permissionGrants = grants; s.selectedTab = .settings
         s.taskList = recentTasks; s.fileSuggestions = pendingFiles(2); s.pendingCount = 6
     }
 

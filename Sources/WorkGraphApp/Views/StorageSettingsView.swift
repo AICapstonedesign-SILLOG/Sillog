@@ -19,36 +19,48 @@ struct StorageSettingsView: View {
         .sheet(item: $state.cleanupPreview) { preview in CleanupPreviewSheet(preview: preview).environmentObject(state) }
     }
 
+    static let barColor = Color(hex: 0x5E97C8)   // 켜짐 표시와 같은 파랑
+
     static func size(_ bytes: Int64) -> String { ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file) }
 
     // MARK: 사용량
 
     private var usage: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionLabel("USAGE")
+            SectionLabel("사용량")
             if let usage = state.storageUsage {
+                VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(Self.size(usage.total)).font(.custom("Jost-ExtraLight", size: 38)).foregroundStyle(Brand.ink)
                     Text("사용 중").font(Brand.suit(12)).foregroundStyle(Brand.gray)
                     Spacer()
                     Text("기록 DB 최근 30일 하루 평균 +\(Self.size(usage.totalDailyGrowth))").font(Brand.suit(11)).foregroundStyle(Brand.gray)
                 }
-                .padding(.top, 14).padding(.bottom, 10)
-                let largest = max(usage.bytes.values.max() ?? 1, 1)
+                .padding(.top, 12).padding(.bottom, 8)
+                let total = max(usage.total, 1)
                 ForEach(StorageUsage.Category.allCases.filter { (usage.bytes[$0] ?? 0) > 0 }.sorted { (usage.bytes[$0] ?? 0) > (usage.bytes[$1] ?? 0) }, id: \.self) { category in
                     let bytes = usage.bytes[category] ?? 0
+                    let share = Double(bytes) / Double(total)
+                    let percent = share >= 0.01 ? "\(Int((share * 100).rounded()))%" : "1% 미만"
                     HStack(spacing: 14) {
                         Text(category.title).font(Brand.suit(12)).foregroundStyle(Brand.text).frame(width: 190, alignment: .leading)
-                        GeometryReader { proxy in
-                            RoundedRectangle(cornerRadius: 2).fill(Brand.ink.opacity(0.75))
-                                .frame(width: max(2, proxy.size.width * CGFloat(Double(bytes) / Double(largest))), height: 6)
-                                .frame(maxHeight: .infinity, alignment: .center)
+                        GeometryReader { proxy in                // 회색 바탕 = 전체, 파란 막대 = 이 항목의 몫
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(Brand.line.opacity(0.7))
+                                Capsule().fill(Self.barColor).frame(width: max(4, proxy.size.width * share))
+                            }
+                            .frame(height: 8).frame(maxHeight: .infinity)
                         }
-                        .frame(height: 14)
-                        Text(Self.size(bytes)).font(Brand.jost(12)).foregroundStyle(Brand.tabText).frame(width: 74, alignment: .trailing)
+                        .frame(height: 16)
+                        Text(percent).font(Brand.suit(11)).foregroundStyle(Brand.gray).frame(width: 52, alignment: .trailing)
+                        Text(Self.size(bytes)).font(Brand.jost(12)).foregroundStyle(Brand.text).frame(width: 74, alignment: .trailing)
                     }
-                    .padding(.vertical, 7)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
+                    .help("\(category.title) \(Self.size(bytes)), 전체의 \(percent)")
                 }
+                }
+                .padding(.bottom, 6)
                 InfoLine(usage.measuredWithDBStat ? "DB 안의 크기는 SQLite가 잰 실제 페이지예요." : "DB 안의 크기는 내용 길이로 어림한 값이에요.")
             } else {
                 HStack(spacing: 10) {
@@ -64,8 +76,9 @@ struct StorageSettingsView: View {
 
     private var retention: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionLabel("RETENTION")
-            SettingRow("보관 정책", detail: "화면 텍스트를 얼마나 남길지 골라요. 지난 기간은 주간·월간 요약이 대신해요.") {
+            SectionLabel("보관")
+            SettingCard {
+            SettingRow("보관 정책", detail: "화면 텍스트를 얼마나 남길지 골라요. 지난 기간은 주간, 월간 요약이 대신해요.") {
                 BrandMenu(selection: presetBinding, options: presetOptions, width: 230)
             }
             SettingRow("스크린샷 보관 기간", detail: "지난 스크린샷 파일만 지워요. 화면 카드와 기록은 아래 기간을 따라요.") {
@@ -78,16 +91,17 @@ struct StorageSettingsView: View {
                 Toggle("", isOn: Binding(get: { state.retention.narrateDigests }, set: { on in update { $0.narrateDigests = on } }))
                     .toggleStyle(BrandSwitchStyle())
             }
+            }
             Button { withAnimation(.easeOut(duration: 0.15)) { advanced.toggle() } } label: {
                 HStack(spacing: 7) {
                     Image(systemName: advanced ? "chevron.down" : "chevron.right").font(.system(size: 10, weight: .medium))
                     Text("항목별 보관일").font(Brand.suit(12, .medium))
                 }
-                .foregroundStyle(Brand.tabText).padding(.vertical, 16).contentShape(Rectangle())
+                .foregroundStyle(Brand.tabText).padding(.horizontal, 4).padding(.vertical, 14).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             if advanced {
-                ForEach(RetentionPolicy.Item.allCases, id: \.self) { item in itemRow(item) }
+                SettingCard { ForEach(RetentionPolicy.Item.allCases, id: \.self) { item in itemRow(item) } }
                 InfoLine("활동 기록은 화면 텍스트보다 먼저 지우지 않아요. 한쪽을 바꾸면 다른 쪽이 맞춰져요.")
             }
         }
@@ -101,10 +115,13 @@ struct StorageSettingsView: View {
                 } else {
                     Text("지우지 않음").font(Brand.suit(11)).foregroundStyle(Brand.text).frame(width: 88 + 10 + 62, alignment: .leading)
                 }
-                Toggle("무기한", isOn: Binding(get: { state.retention.days(item) == nil }, set: { forever in
-                    update { $0.setDays(item, forever ? nil : RetentionPolicy.standard.days(item) ?? item.range.lowerBound) }
-                }))
-                .toggleStyle(.checkbox).font(Brand.suit(11))
+                HStack(spacing: 0) {                       // 체크 표시 + 글자 (토글, 파란 체크상자 대신)
+                    Text("무기한").font(Brand.suit(11)).foregroundStyle(Brand.tabText)
+                    Toggle("", isOn: Binding(get: { state.retention.days(item) == nil }, set: { forever in
+                        update { $0.setDays(item, forever ? nil : RetentionPolicy.standard.days(item) ?? item.range.lowerBound) }
+                    }))
+                    .toggleStyle(BrandSwitchStyle())
+                }
             }
         }
     }
@@ -122,8 +139,8 @@ struct StorageSettingsView: View {
 
     private var presetOptions: [(String, String)] {
         func days(_ value: Int?) -> String { value.map { "\($0)일" } ?? "무기한" }
-        var options = RetentionPolicy.Preset.allCases.map { ($0.rawValue, "\($0.title) · 화면 텍스트 \(days($0.screenTextDays))") }
-        if state.retention.preset == nil { options.append(("custom", "사용자 지정 · 화면 텍스트 \(days(state.retention.screenTextDays))")) }
+        var options = RetentionPolicy.Preset.allCases.map { ($0.rawValue, "\($0.title), 화면 텍스트 \(days($0.screenTextDays))") }
+        if state.retention.preset == nil { options.append(("custom", "사용자 지정, 화면 텍스트 \(days(state.retention.screenTextDays))")) }
         return options
     }
 
@@ -146,12 +163,14 @@ struct StorageSettingsView: View {
 
     private var cleanup: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionLabel("CLEANUP")
-            SettingRow("지금 정리", detail: lastRun) {
-                HStack(spacing: 10) {
-                    if state.consolidating { ProgressView().controlSize(.small) }
-                    Button(state.consolidating ? "정리하는 중…" : "지금 정리") { Task { await state.prepareCleanup() } }
-                        .buttonStyle(BrandButtonStyle(kind: .primary)).disabled(state.consolidating)
+            SectionLabel("정리")
+            SettingCard {
+                SettingRow("지금 정리", detail: lastRun) {
+                    HStack(spacing: 10) {
+                        if state.consolidating { ProgressView().controlSize(.small) }
+                        Button(state.consolidating ? "정리하는 중…" : "지금 정리") { Task { await state.prepareCleanup() } }
+                            .buttonStyle(BrandButtonStyle(kind: .primary)).disabled(state.consolidating)
+                    }
                 }
             }
             InfoLine(state.rawRecordsSince.map { "원문 기록은 \($0)부터 남아 있어요. 그 전은 요약과 사용 시간만 있어요." }
@@ -162,20 +181,18 @@ struct StorageSettingsView: View {
             if let notes = state.consolidationReport?.notes, !notes.isEmpty {
                 Text(notes.joined(separator: "\n")).font(Brand.suit(11)).foregroundStyle(Brand.gray).padding(.top, 12)
             }
-            SectionLabel("KEPT RECORDS")
+            SectionLabel("보존한 기록")
             if state.retentionPins.isEmpty {
                 Text("업무 화면의 '원문 보존'이나 활동 로그의 '이 날 원문 보존'으로 지우지 않을 기록을 고를 수 있어요.")
-                    .font(Brand.suit(11)).foregroundStyle(Brand.gray).padding(.vertical, 14)
-            }
-            ForEach(state.retentionPins) { pin in
-                HStack(spacing: 12) {
-                    Image(systemName: pin.kind == .task ? "pin" : "calendar").font(.system(size: 13)).foregroundStyle(Brand.tabText)
-                    Text(pinTitle(pin)).font(Brand.suit(13)).foregroundStyle(Brand.text)
-                    Spacer()
-                    Button("보존 해제") { state.removePin(pin) }.buttonStyle(BrandButtonStyle())
+                    .font(Brand.suit(11)).foregroundStyle(Brand.gray).padding(.horizontal, 4).padding(.vertical, 6)
+            } else {
+                SettingCard {
+                    ForEach(state.retentionPins) { pin in
+                        SettingRow(pinTitle(pin)) {
+                            Button("보존 해제") { state.removePin(pin) }.buttonStyle(BrandButtonStyle())
+                        }
+                    }
                 }
-                .frame(height: 52)
-                .overlay(alignment: .bottom) { Rectangle().fill(Brand.line).frame(height: 1) }
             }
         }
     }
@@ -183,15 +200,15 @@ struct StorageSettingsView: View {
     private var lastRun: String {
         guard let report = state.consolidationReport else { return "하루 한 번, 자리를 비웠을 때 요약을 만들고 보관 기간이 지난 원문을 정리해요." }
         let time = Date(timeIntervalSince1970: report.finishedAt ?? report.startedAt).formatted(date: .abbreviated, time: .shortened)
-        return "마지막 정리 \(time) · \(report.summary)"
+        return "마지막 정리 \(time), \(report.summary)"
     }
 
     private func pinTitle(_ pin: RetentionPin) -> String {
         switch pin.kind {
-        case .task: return "업무 · " + (state.taskList.first { $0.key == pin.key }?.title ?? pin.key)
+        case .task: return "업무, " + (state.taskList.first { $0.key == pin.key }?.title ?? pin.key)
         case .period:
             let parts = pin.key.components(separatedBy: "..")
-            return "기간 · " + (parts.count == 2 && parts[0] == parts[1] ? parts[0] : pin.key.replacingOccurrences(of: "..", with: " ~ "))
+            return "기간, " + (parts.count == 2 && parts[0] == parts[1] ? parts[0] : pin.key.replacingOccurrences(of: "..", with: " ~ "))
         }
     }
 }
@@ -205,7 +222,7 @@ struct CleanupPreviewSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Eyebrow("CLEANUP")
+                    Eyebrow("정리")
                     Text(preview.consentNeeded && !preview.plan.isEmpty ? "처음 정리하기 전에 확인해 주세요" : "정리 미리보기")
                         .font(Brand.suit(22, .bold)).foregroundStyle(Brand.ink).padding(.top, 8)
                 }

@@ -39,7 +39,7 @@ SIGN_IDENTITY="Apple Development: 인증서 이름" ./scripts/make-app.sh
 | `WORKGRAPH_CODEX_AUTH` | 앱 전용 ChatGPT 인증 파일 경로 |
 | `WORKGRAPH_SHOW_WINDOW=1` | 시작 시 메인 창 표시 |
 | `WORKGRAPH_REQUEST_PERMISSIONS=1` | 시작 시 손쉬운 사용·화면 기록 권한 요청 |
-| `WORKGRAPH_TAB` | 시작 탭: `graph`, `tasks`, `files`, `library`, `activity`, `chat`, `settings` |
+| `WORKGRAPH_TAB` | 시작 탭: `graph`, `chat`, `settings` |
 
 ## 테스트와 CLI
 
