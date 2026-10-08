@@ -2,143 +2,65 @@ import SwiftUI
 import WorkGraphCore
 
 /// 유리 탭 막대: 흰색 72% 위에 배경 흐림, 선택한 탭은 흰색 78% 알약
-/// 창 맨 왼쪽 세로 막대: 그래프, 채팅, 설정 아이콘과 맨 아래 지금 정리 (VIEW 목록 왼쪽에 붙는다)
-private struct NavRail: View {
+private struct BrandTabBar: View {
     @EnvironmentObject private var state: AppState
-    private func icon(_ tab: MainWindow.Tab) -> String {
-        switch tab { case .graph: "point.3.connected.trianglepath.dotted"; case .chat: "bubble.left"; case .settings: "gearshape" }
-    }
+
     var body: some View {
-        VStack(spacing: 6) {
+        HStack(spacing: 6) {
             ForEach(MainWindow.Tab.allCases) { tab in
                 let on = state.selectedTab == tab
                 Button { state.selectedTab = tab } label: {
-                    Image(systemName: icon(tab)).font(.system(size: 15, weight: on ? .semibold : .regular))
-                    .foregroundStyle(on ? Brand.ink : Brand.tabText)
-                    .frame(width: 36, height: 36)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(on ? Color(hex: 0xF7F5F2) : .clear))   // 고른 탭 알약, 흰색보다 한 단계 어둡게
-                    .hoverHighlight(cornerRadius: 10, active: !on)
-                    .overlay(alignment: .topTrailing) {
-                        if tab == .settings, state.pendingFileSuggestions > 0 { Circle().fill(Brand.sky).frame(width: 7, height: 7).offset(x: -3, y: 4) }   // 아이콘만이라 숫자 대신 점
+                    HStack(spacing: 6) {
+                        Text(tab.rawValue)
+                            .font(Brand.suit(12, on ? .semibold : .regular))
+                            .foregroundStyle(on ? Brand.ink : Brand.tabText)
+                        if tab == .files, state.pendingFileSuggestions > 0 { FileBadge(count: state.pendingFileSuggestions) }
                     }
+                    .padding(.horizontal, 14)
+                    .frame(height: 35)
+                    .glassPill(on)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .railLabel(tab.rawValue)
             }
-            if state.selectedTab == .chat {   // 예약, 스킬, 플러그인은 채팅 탭에서만
-            Rectangle().fill(Brand.hairline).frame(width: 20, height: 1).padding(.vertical, 6)
-            ForEach([("clock", "예약", "schedules"), ("sparkles", "스킬", "skills"), ("powerplug", "플러그인", "plugins")], id: \.2) { icon, name, sheet in
-                Button { state.selectedTab = .chat; state.chatSheet = sheet } label: {
-                    RailGlowIcon(name: icon)                                 // 아이콘 선을 따라 하늘빛이 천천히 흐른다
-                        .frame(width: 36, height: 36)
-                        .hoverHighlight(cornerRadius: 10)
-                        .contentShape(Rectangle())
+            Spacer(minLength: 12)
+            if state.batchRunning {
+                HStack(spacing: 8) {                          // OUT-W5: 정리하는 동안 오른쪽 위에 회전 표시
+                    ProgressView().controlSize(.mini)
+                    Text("정리하는 중…").font(Brand.suit(12)).foregroundStyle(Brand.sub)
                 }
-                .buttonStyle(.plain).railLabel(name).accessibilityLabel(name)
-            }
-            }
-            Spacer(minLength: 0)
-            AccountDot()
-        }
-        .padding(.top, 10).padding(.bottom, 12).padding(.horizontal, 6)
-        .frame(width: 48)
-        .frame(maxHeight: .infinity)
-        .background(Color(hex: 0xEFECE9))                    // 창 머리와 같은 톤, 흰색보다 한 단계 낮춤
-        .overlay(alignment: .trailing) { Rectangle().fill(Brand.hairline).frame(width: 1) }
-    }
-}
-
-/// 아이콘 줄 맨 아래 계정 동그라미: 로그인한 이메일 앞 두 글자. 누르면 설정
-private struct AccountDot: View {
-    @EnvironmentObject private var state: AppState
-    private var email: String? { if case .loggedIn(let email, _, _) = state.codexStatus { return email }; return nil }
-    var body: some View {
-        let initials = String((email ?? "?").prefix(2)).uppercased()
-        Button { state.settingsSection = .ai; state.selectedTab = .settings } label: {   // 계정 연결은 AI 구역
-            Text(initials).font(Brand.suit(11, .semibold)).foregroundStyle(.white)
-                .frame(width: 30, height: 30).background(Circle().fill(Brand.ink))
-                .frame(width: 36, height: 36).contentShape(Circle())
-        }
-        .buttonStyle(.plain).railLabel(email ?? "계정").accessibilityLabel("계정 \(email ?? "")")
-    }
-}
-
-/// 아이콘 줄 이름표: 커서를 대면 오른쪽에 작은 이름표가 바로 뜬다 (기본 도움말은 늦게 떠서)
-private struct RailLabel: ViewModifier {
-    let text: String
-    @State private var hover = false
-    func body(content: Content) -> some View {
-        content
-            .onHover { hover = $0 }
-            .overlay(alignment: .leading) {
-                if hover {
-                    Text(text).font(Brand.suit(11, .medium)).foregroundStyle(.white).fixedSize()
-                        .padding(.horizontal, 8).padding(.vertical, 4)
-                        .background(RoundedRectangle(cornerRadius: 6).fill(Brand.ink.opacity(0.88)))
-                        .offset(x: 44).allowsHitTesting(false)
-                        .transition(.opacity)
+            } else {
+                Button { Task { await state.runBatch(force: true) } } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.counterclockwise").font(.system(size: 11))
+                        Text("지금 정리").font(Brand.suit(11))
+                        if state.pendingCount > 0 {
+                            Text("\(state.pendingCount)").font(Brand.jost(12)).foregroundStyle(Brand.gray)
+                        }
+                    }
+                    .foregroundStyle(Brand.tabText)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .help("아직 정리되지 않은 활동을 지금 바로 그래프에 반영합니다")
             }
-            .animation(.easeOut(duration: 0.12), value: hover)
-    }
-}
-private extension View { func railLabel(_ text: String) -> some View { modifier(RailLabel(text: text)) } }
-
-/// 아이콘 선 자체에 옅은 하늘빛이 비스듬히 지나간다 (그래프 AI 검색 밑줄과 같은 색). 바탕 아이콘은 다른 아이콘과 같은 회색
-private struct RailGlowIcon: View {
-    let name: String
-    @State private var phase: CGFloat = -0.65   // 빛 띠 가운데가 늘 아이콘 위를 지나도록
-    @Environment(\.accessibilityReduceMotion) private var reduce
-
-    var body: some View {
-        let glyph = Image(systemName: name).font(.system(size: 15))
-        glyph.foregroundStyle(Color(hex: 0x5E97C8))                             // 늘 하늘빛 (회색 대신)
-            .shadow(color: Color(hex: 0x9CCBF0).opacity(0.9), radius: 3)       // 항상 은은히 번짐
-            .overlay {
-                LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: Color(hex: 0xBFE2FB), location: 0.4),
-                                       .init(color: .white, location: 0.5), .init(color: Color(hex: 0xBFE2FB), location: 0.6),
-                                       .init(color: .clear, location: 1)],
-                               startPoint: UnitPoint(x: phase, y: phase), endPoint: UnitPoint(x: phase + 1, y: phase + 1))
-                    .mask(glyph)                                                 // 그 위로 밝은 띠가 오간다
-            }
-            .onAppear {
-                guard !reduce else { return }
-                withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) { phase = 0.65 }
-            }
-    }
-}
-
-/// 창 머리 오른쪽 끝: 지금 정리 (회전 아이콘 + 대기 수), 정리 중이면 작은 회전 표시
-private struct TitleRefresh: View {
-    @EnvironmentObject private var state: AppState
-    @State private var spin = false
-    /// 기록 중(수집이 돌고, 멈춤이나 자리 비움이 아닐 때)이면 아이콘이 천천히 돈다
-    private var recording: Bool { state.status.running && !state.status.paused && !state.status.idle }
-    var body: some View {
-        Button { Task { await state.runBatch(force: true) } } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "arrow.counterclockwise").font(.system(size: 11))
-                    .rotationEffect(.degrees(spin ? -360 : 0))
-                    .animation(spin ? .linear(duration: state.batchRunning ? 0.9 : 2.4).repeatForever(autoreverses: false) : .default, value: spin)
-                if state.pendingCount > 0 { Text("\(state.pendingCount)").font(Brand.jost(11)) }
-            }
-            .foregroundStyle(Brand.tabText).contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .disabled(state.batchRunning)
-        .help(state.batchRunning ? "정리하는 중…" : recording ? "기록 중. 누르면 지금 정리합니다" : "지금 정리: 아직 정리되지 않은 활동을 바로 그래프에 반영합니다")
-        .padding(.trailing, 14)                                   // 아래 '업무 28개, 항목 242개' 오른쪽 끝과 맞춘다
-        .onAppear { spin = recording || state.batchRunning }
-        .onChange(of: recording || state.batchRunning) { _, on in spin = on }
+        .padding(.leading, 13)
+        .padding(.trailing, 19)
+        .frame(height: 54)
+        .brandGlass()
+        .overlay(alignment: .bottom) { Rectangle().fill(Brand.hairline).frame(height: 1) }
     }
 }
 
-/// 설정 탭과 설정의 파일 구역 옆 대기 중인 정리 제안 수 (Figma OUT-01 탭 막대: Jost 10, 하늘색 테두리)
-struct FileBadge: View {
+/// 파일 탭 옆 대기 중인 정리 제안 수 (Figma OUT-01 탭 막대: Jost 10, 하늘색 테두리)
+private struct FileBadge: View {
     let count: Int
     var body: some View {
-        Text("\(count)").font(Brand.jost(11)).foregroundStyle(Color(hex: 0x5E97C8))   // 상자 없이 하늘색 숫자만
+        Text("\(count)").font(Brand.jost(10)).foregroundStyle(Brand.tabText)
+            .padding(.horizontal, 5).frame(height: 17)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Brand.sky.opacity(0.12)))
+            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Brand.sky))
     }
 }
 
@@ -202,83 +124,22 @@ private struct HideWindowTitle: ViewModifier {
     }
 }
 
-/// 업무 패널: sc2k 판정 항목처럼 창 오른쪽 끝에 세로 탭만 보이고, 탭에 커서를 대면 밀려 나온다.
-/// 패널 밖으로 나가면 0.3초 뒤 닫히고(밀려 나오는 동안 커서가 탭을 벗어나도 안 닫히게), 탭을 누르면 열린 채 고정된다
-struct TasksDock: View {
-    static let width: CGFloat = 820                               // 업무 목록 276 + 상세. 창 최소 폭 900 안에 탭(30)까지 들어간다
-    static let peek: CGFloat = 277                                // 1단계: 커서를 대면 업무 목록만, 누르면 상세까지 펼친다
-    @State private var hover = false
-    @State private var expanded = false
-    @State private var pinned: Bool
-    @State private var closing: Task<Void, Never>?
-
-    /// pinned: 열린 채로 시작 (스냅샷용)
-    init(pinned: Bool = false) { _pinned = State(initialValue: pinned) }
-
-    private var open: Bool { hover || pinned }
-    private var shown: CGFloat { expanded || pinned ? Self.width : Self.peek }
-
-    var body: some View {
-        HStack(spacing: 0) {
-            Button { pinned.toggle() } label: {
-                Capsule().fill(Brand.ink.opacity(open ? 0.35 : 0.18))   // 업무 손잡이: 화면 끝 가는 막대
-                    .frame(width: 4, height: 56)
-                    .frame(width: 16, height: 120)                     // 닿는 영역은 넉넉히
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .onHover(perform: hovered)
-            .help(pinned ? "누르면 고정을 풀어요" : "누르면 열린 채로 고정해요")
-            .accessibilityLabel("업무 패널")
-            TasksView()
-                .frame(width: Self.width)
-                .frame(width: shown, alignment: .leading)
-                .clipped()
-                .simultaneousGesture(TapGesture().onEnded { expanded = true })   // 2단계: 목록에서 업무를 누르면 상세까지
-                .background {                                     // 흰 바탕: 업무 목록의 유리 뒤로 그래프가 비치지 않게. 그림자는 바탕에만(글자마다 번지지 않게)
-                    Rectangle().fill(.white).shadow(color: .black.opacity(open ? 0.06 : 0), radius: 12, x: -8)
-                }
-                .overlay(alignment: .leading) { Rectangle().fill(Brand.line).frame(width: 1) }
-                .overlay(alignment: .topTrailing) {                // 닫기: 고정도 풀고 바로 접는다 (Esc 도 같다)
-                    Button { close() } label: {
-                        Image(systemName: "xmark").font(.system(size: 11, weight: .medium)).foregroundStyle(Brand.tabText)
-                            .frame(width: 26, height: 26).background(Circle().fill(Color.black.opacity(0.05))).contentShape(Circle())
-                    }
-                    .buttonStyle(.plain).keyboardShortcut(.cancelAction).help("업무 패널 닫기 (Esc)")
-                    .padding(10)
-                }
-                .onHover(perform: hovered)
-        }
-        .offset(x: open ? 0 : shown)
-        .animation(.easeOut(duration: 0.22), value: open)
-        .animation(.easeOut(duration: 0.22), value: shown)
-        .onChange(of: open) { _, isOpen in if !isOpen { expanded = false } }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-    }
-
-    private func close() { closing?.cancel(); pinned = false; hover = false; expanded = false }
-
-    private func hovered(_ inside: Bool) {
-        closing?.cancel()
-        if inside { hover = true; return }
-        closing = Task {
-            try? await Task.sleep(nanoseconds: 300_000_000)
-            if !Task.isCancelled { hover = false }
-        }
-    }
-}
-
 struct MainWindow: View {
     enum Tab: String, CaseIterable, Identifiable {
-        case graph = "그래프", chat = "채팅", settings = "설정"     // 업무는 오른쪽 패널(TasksDock), 파일·보관함·활동 로그는 설정 안 구역
+        case graph = "그래프", tasks = "업무", files = "파일", library = "보관함", activity = "활동 로그", chat = "채팅", settings = "설정"
         var id: String { rawValue }
     }
 
     @EnvironmentObject private var state: AppState
-    /// WORKGRAPH_TAB=chat|settings 로 시작 탭을 고를 수 있다 (개발·스크린샷용).
+    /// WORKGRAPH_TAB=activity|settings 로 시작 탭을 고를 수 있다 (개발·스크린샷용).
     static let initialTab: Tab = {
         switch ProcessInfo.processInfo.environment["WORKGRAPH_TAB"] {
+        case "activity": return .activity
+        case "files": return .files
+        case "library": return .library
+        case "tasks": return .tasks
         case "settings": return .settings
+        case "graph": return .graph
         case "chat": return .chat
         default: return .graph                                   // 권한·로그인 안내는 온보딩이 맡는다
         }
@@ -293,8 +154,8 @@ struct MainWindow: View {
     private var sheetShown: Bool { showsTabs && state.onboardingStep != nil }
 
     var body: some View {
-        HStack(spacing: 0) {
-            if showsTabs { NavRail().zIndex(1) }   // 이름표가 옆 화면 위로 나오게
+        VStack(spacing: 0) {
+            if showsTabs { BrandTabBar() }
             Group {
                 if let error = state.startupError {
                     BrandStartupErrorView(message: error)
@@ -305,6 +166,10 @@ struct MainWindow: View {
                 } else {
                     switch state.selectedTab {
                     case .graph: GraphWebView(version: state.graphVersion).ignoresSafeArea(edges: .bottom)   // 웹 페이지의 빈 곳으로 창 바탕 유리가 보인다
+                    case .tasks: TasksView()
+                    case .files: FilesView()
+                    case .library: if let chat = state.chat { LibraryView(library: chat.library, projects: chat.projects) }
+                    case .activity: ActivityLogView()
                     case .chat: if let chat = state.chat {
                         ChatView(chat: chat, projects: chat.projects, library: chat.library, modelName: state.settings.chatModelName, openSettings: { state.selectedTab = .settings })
                     }
@@ -313,7 +178,6 @@ struct MainWindow: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .overlay { if ready { TasksDock() } }
         }
         .disabled(sheetShown)
         .accessibilityHidden(sheetShown)
@@ -323,16 +187,25 @@ struct MainWindow: View {
         .frame(minWidth: 900, minHeight: 560)
         .sheet(item: $state.resumeRequest) { request in ResumeSheet(request: request).environmentObject(state) }
         .toolbar {
-            if showsTabs {
-                if #available(macOS 26.0, *) {
-                    ToolbarSpacer(.flexible)
-                    ToolbarItem { TitleRefresh() }.sharedBackgroundVisibility(.hidden)   // 지금 정리: 창 머리 오른쪽 위
+            ToolbarItem(placement: .principal) {
+                if let mark = Brand.wordmark {
+                    Image(nsImage: mark).resizable().scaledToFit().frame(height: 16).accessibilityLabel("SILLOG")
                 } else {
-                    ToolbarItem { TitleRefresh() }
+                    Text("SILLOG").font(Brand.suit(14, .semibold)).foregroundStyle(Brand.ink)
+                }
+            }
+            if ready {
+                ToolbarItem(placement: .primaryAction) {
+                    HStack(spacing: 7) {
+                        Rectangle().fill(Brand.ink).frame(width: 6, height: 6)
+                        Text(state.statusLine == "수집 중" ? "기록 중" : state.statusLine)
+                            .font(Brand.suit(10))
+                            .foregroundStyle(Brand.gray)
+                    }
                 }
             }
         }
-        .toolbarBackground(Color(hex: 0xEFECE9), for: .windowToolbar)
+        .toolbarBackground(Color.white, for: .windowToolbar)
         .modifier(HideWindowTitle())
         .modifier(WindowGlassBackground())
         .task { await state.bootstrap() }

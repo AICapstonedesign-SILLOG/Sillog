@@ -202,7 +202,6 @@ public struct ProjectStore: Sendable {
                     try Self.save(proposal, conn)
                 }
             }
-            try Self.dedupeProposals(conn)
             for id in review.newIDs {
                 if try String.fetchOne(conn, sql: "SELECT decision FROM project_reviewed WHERE item_id = ?", arguments: [id]) == nil {
                     try Self.mark(id, decision: "seen", conn)
@@ -250,31 +249,6 @@ public struct ProjectStore: Sendable {
             try Self.mark(itemID, decision: "manual", conn)
             try Self.removeFromProposals(itemID, conn)
         }
-    }
-
-    /// Args: 없음.
-    /// Returns: 없음. 대기 중인 제안끼리 겹치는 항목을 먼저 만든 제안에만 남기고, 근거가 모자라진 제안은 지운다. 설명의 항목 ID도 걷어 낸다.
-    /// Raises: DB 오류.
-    public func cleanProposals() throws { try db.writer.write { try Self.dedupeProposals($0) } }
-
-    static func dedupeProposals(_ conn: Database) throws {
-        var seen: Set<String> = []
-        for var proposal in try Self.proposals(conn) {
-            let before = proposal.items.count, reason = proposal.reason
-            proposal.items.removeAll { !seen.insert($0.id).inserted }
-            proposal.reason = cleanReason(proposal.reason)
-            if proposal.items.isEmpty || (proposal.projectID == nil && proposal.items.count < 2) {
-                try conn.execute(sql: "DELETE FROM project_proposals WHERE id = ?", arguments: [proposal.id])
-            } else if proposal.items.count != before || proposal.reason != reason {
-                try Self.save(proposal, conn)
-            }
-        }
-    }
-
-    /// "task:6957는 ..." 같은 내부 ID를 설명 글에서 걷어 낸다
-    static func cleanReason(_ text: String) -> String {
-        text.replacingOccurrences(of: #"\b(?:task|chat|conversation|card|node|message):[A-Za-z0-9_-]+(?:의|는|은|와|과|이|가)?\s*"#, with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func removeFromProposals(_ itemID: String, _ conn: Database) throws {

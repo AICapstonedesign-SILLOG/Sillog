@@ -10,8 +10,7 @@ public struct ProjectOrganizer: Sendable {
     Prefer an existing destination for the same goal. A proposal destination means append the new items to that pending proposal.
     Every group must contain at least one NEW item. You may include CONTEXT items when they clearly share its goal.
     Use each item at most once. Only use the provided IDs. For a new project, target is empty and at least two items must share the goal.
-    Give a short Korean project title, concrete goal and explanation of the evidence. Refer to items by their titles in the explanation, never by IDs.
-    Never put an item into a new group when it already belongs to a pending proposal; append to that proposal instead. Do not propose a project merely to classify every item.
+    Give a short Korean project title, concrete goal and explanation of the evidence. Do not propose a project merely to classify every item.
     Always call suggest_projects. Return an empty groups array if no clear group exists.
     """
 
