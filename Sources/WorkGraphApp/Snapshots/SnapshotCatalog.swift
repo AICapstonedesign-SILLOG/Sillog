@@ -89,7 +89,7 @@ enum SnapshotCatalog {
     /// 저장 공간 설정(기본·항목별 보관일 펼침), 첫 정리 동의 시트, 업무 요약 탭
     static var storage: [Snapshot] {
         [
-            shot("ST-STORAGE", SettingsView(), size: window) { s in storageState(s); s.settingsSection = .storage },
+            shot("ST-STORAGE", SettingsView(), size: window) { s in storageState(s); s.settingsSection = .record },
             shot("ST-STORAGE-ADVANCED", ScrollView { StorageSettingsView(advanced: true).padding(.horizontal, 34).padding(.bottom, 40) }.background(.white),
                  size: CGSize(width: 946, height: 1500)) { s in storageState(s) },
             shot("ST-CLEANUP-CONSENT", CleanupPreviewSheet(preview: sampleCleanup)) { s in storageState(s) },

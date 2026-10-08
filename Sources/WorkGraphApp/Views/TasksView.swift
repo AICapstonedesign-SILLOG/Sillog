@@ -5,6 +5,7 @@ import WorkGraphCore
 struct TasksView: View {
     @EnvironmentObject private var state: AppState
     @State private var selectedTask: Int64?
+    @State private var hoveredTask: Int64?                  // 줄에 커서를 대면 원문 보존, 다시 열기 단추가 보임
     @State private var collapsed: Set<String> = []          // 접은 분야 폴더
     @State private var sessions: [SessionSummary] = []
     @State private var digests: [Digest] = []
@@ -162,14 +163,37 @@ struct TasksView: View {
             }
             .padding(.leading, 25).padding(.trailing, 10).padding(.vertical, 8)          // 폴더 아이콘 아래로 들여쓰기
             .frame(maxWidth: .infinity, alignment: .leading)
+            .hoverHighlight(cornerRadius: 5, active: !on)
             .background(on ? RoundedRectangle(cornerRadius: 5).fill(.white.opacity(0.64)) : nil)
             .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(on ? Brand.hairline : .clear))
             .overlay(alignment: .leading) { if on { Rectangle().fill(Brand.ink).frame(width: 2).padding(.vertical, 8) } }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .overlay(alignment: .bottomTrailing) { rowActions(task) }
+        .onHover { hoveredTask = $0 ? task.id : (hoveredTask == task.id ? nil : hoveredTask) }
         .contextMenu {
             if let projects = state.chat?.projects { ProjectMoveMenu(projects: projects, itemID: "task:\(task.id)") }
+        }
+    }
+
+    /// 목록 줄 오른쪽 아래 바로 가기: 원문 보존(보존 중이면 늘 보임), 다시 열기
+    @ViewBuilder private func rowActions(_ task: TaskSummary) -> some View {
+        let pinned = state.isTaskPinned(task.key), hot = hoveredTask == task.id
+        if hot || pinned {
+            HStack(spacing: 2) {
+                Button { state.toggleTaskPin(task.key) } label: {
+                    Image(systemName: pinned ? "pin.fill" : "pin").font(.system(size: 10))
+                        .foregroundStyle(pinned ? Brand.ink : Brand.tabText).frame(width: 22, height: 20).contentShape(Rectangle())
+                }.help(pinned ? "원문 보존 중 (누르면 해제)" : "원문 보존")
+                if hot {
+                    Button { state.prepareResume(taskId: task.id) } label: {
+                        Image(systemName: "arrow.counterclockwise").font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(Brand.tabText).frame(width: 22, height: 20).contentShape(Rectangle())
+                    }.help("다시 열기")
+                }
+            }
+            .buttonStyle(.plain).padding(.trailing, 6).padding(.bottom, 5)
         }
     }
 
@@ -415,7 +439,6 @@ struct TasksView: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0xF9F8F7)))
-        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Brand.line))
         .padding(.bottom, 12)
     }
 
@@ -591,7 +614,6 @@ struct DigestEditSheet: View {
                 .font(Brand.suit(12)).scrollContentBackground(.hidden)
                 .padding(12)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color(hex: 0xF9F8F7)))
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Brand.line))
                 .frame(minHeight: 320)
                 .padding(.horizontal, 32).padding(.top, 18)
             Text("저장하면 '수정함'으로 바뀌고 자동으로 다시 만들지 않아요. 채팅도 고친 내용을 요약으로 읽어요.")

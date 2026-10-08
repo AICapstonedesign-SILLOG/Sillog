@@ -307,7 +307,7 @@ button.theme-head:hover h2 { color: var(--text); }
 /* 연결망: 앱의 force-graph 뷰와 같은 캔버스 */
 #main.full { padding: 0; overflow: hidden; }
 #main.v3d { background: transparent; }   /* 입체 보기: 창 유리 위에 갈색 흐름(G3D.mesh)을 깐다 */
-#main.meshbg { background: transparent; }   /* 연결망: 갈색 흐름을 옅게 깔고 내용은 그 위로 */
+#main.meshbg { background: #FBFAF9; }   /* 회색 유리 대신 밝은 바탕 */   /* 연결망: 갈색 흐름을 옅게 깔고 내용은 그 위로 */
 #main.meshbg > :not(.g3dmesh) { position: relative; z-index: 1; }
 #main.meshbg.glass { background: rgba(255, 255, 255, 0.82); -webkit-backdrop-filter: blur(22px) saturate(1.4); backdrop-filter: blur(22px) saturate(1.4); }   /* 원형 비중, 가지 도표: 화면 전체를 흰 유리로, 갈색 흐름은 그 안에서 옅게 */
 #main.meshbg .cvc { -webkit-mask-image: radial-gradient(closest-side, #000 72%, transparent); mask-image: radial-gradient(closest-side, #000 72%, transparent); }   /* 분야 은하 번짐이 캔버스 끝에서 잘려 보이지 않게 */
@@ -529,25 +529,8 @@ button.theme-head:hover h2 { color: var(--text); }
 .cvwrap { position: relative; }
 .cvc { display: block; max-width: none; touch-action: none; outline: none; }
 .cvc:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.cv-dd { position: relative; margin-left: 4px; z-index: 20; }
-.cv-ddb { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 220px; padding: 5px 8px; font: inherit; color: var(--text); background: rgba(255, 255, 255, 0.66); border: 1px solid rgba(255, 255, 255, 0.9); border-radius: 8px; box-shadow: 0 4px 14px rgba(36, 21, 15, 0.06), inset 0 0 0 1px rgba(36, 21, 15, 0.04); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); cursor: pointer; text-align: left; }
-.cv-ddb span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cv-ddb svg { flex: none; color: var(--muted); transition: transform 0.12s; }
-.cv-ddb[aria-expanded="true"] svg { transform: rotate(180deg); }
-.cv-ddb:focus-visible, .cv-side button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.cv-ddl { position: absolute; top: calc(100% + 4px); left: 0; width: 300px; max-height: 60vh; overflow-y: auto; padding: 6px; border-radius: 12px; background: rgba(255, 255, 255, 0.72); border: 1px solid rgba(255, 255, 255, 0.9); box-shadow: 0 10px 30px rgba(36, 21, 15, 0.12), inset 0 0 0 1px rgba(36, 21, 15, 0.04); backdrop-filter: blur(18px) saturate(1.4); -webkit-backdrop-filter: blur(18px) saturate(1.4); }
-.cv-ddl[hidden] { display: none; }
-.cv-ddh { display: flex; align-items: center; gap: 6px; padding: 8px 8px 3px; font-size: 11px; color: var(--muted); }
-.cv-ddh i, .cv-side i { flex: none; display: inline-block; width: 7px; height: 7px; border-radius: 50%; }
-.cv-opt { display: flex; align-items: center; gap: 8px; padding: 5px 8px 5px 22px; border-radius: 999px; font-size: 12px; cursor: pointer; }
-.cv-opt.all { padding-left: 8px; }
-.cv-opt span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cv-opt em { flex: none; font-style: normal; color: var(--muted); font-variant-numeric: tabular-nums; }
-.cv-opt svg { flex: none; width: 12px; height: 12px; margin-left: -16px; margin-right: 4px; visibility: hidden; }
-.cv-opt.all svg { margin-left: 0; margin-right: 0; }
-.cv-opt:hover, .cv-opt.act { background: rgba(36, 21, 15, 0.05); }
-.cv-opt[aria-selected="true"] { font-weight: 600; background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.7)); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 1), inset 0 0 0 1px rgba(36, 21, 15, 0.06), 0 2px 8px rgba(36, 21, 15, 0.12); }
-.cv-opt[aria-selected="true"] svg { visibility: visible; }
+.cv-side button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cv-side i { flex: none; display: inline-block; width: 7px; height: 7px; border-radius: 50%; }
 .cv-side { position: absolute; top: 10px; bottom: 10px; left: 10px; z-index: 3; width: clamp(220px, 38%, 300px); padding: 14px; overflow-y: auto; font-size: 12px; line-height: 1.5; border-radius: 14px; background: rgba(255, 255, 255, 0.72); border: 1px solid rgba(255, 255, 255, 0.9); box-shadow: 0 10px 30px rgba(36, 21, 15, 0.12), inset 0 0 0 1px rgba(36, 21, 15, 0.04); backdrop-filter: blur(18px) saturate(1.4); -webkit-backdrop-filter: blur(18px) saturate(1.4); }
 .cv-side[hidden] { display: none; }
 .cv-sc { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
@@ -593,13 +576,6 @@ button.theme-head:hover h2 { color: var(--text); }
 .cv-card p { color: var(--muted); font-size: 11px; }
 .cv-card ul { list-style: none; margin: 6px 0; }
 .cv-card li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cvctl { position: absolute; right: 12px; bottom: 12px; z-index: 3; display: flex; gap: 2px; padding: 4px; background: rgba(255, 255, 255, 0.66); border: 1px solid rgba(255, 255, 255, 0.9); border-radius: 12px; box-shadow: 0 10px 30px rgba(36, 21, 15, 0.08), inset 0 0 0 1px rgba(36, 21, 15, 0.04); backdrop-filter: blur(18px) saturate(1.4); -webkit-backdrop-filter: blur(18px) saturate(1.4); }
-.cvctl button { display: grid; place-items: center; width: 30px; height: 30px; color: var(--text); background: none; border: 0; border-radius: 8px; cursor: pointer; }
-.cvctl button[aria-pressed="true"] { color: var(--canvas); background: var(--text); }   /* 이동 도구 켬 */
-.cvctl button[data-a="hand"] { position: relative; margin-right: 7px; }
-.cvctl button[data-a="hand"]::after { content: ""; position: absolute; right: -5px; top: 7px; bottom: 7px; width: 1px; background: rgba(36, 21, 15, 0.12); }   /* 도구와 보기 조작 사이 구분선 */
-.cvctl button:hover { background: rgba(36, 21, 15, 0.06); }
-.cvctl button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .cvtip { position: absolute; z-index: 2; pointer-events: none; white-space: nowrap; padding: 4px 8px; font-size: 11.5px; color: var(--text); background: var(--canvas); border: 1px solid var(--line); border-radius: 6px; }
 /* ==== VIEW:cosmos CSS END ==== */
 /* 좁은 창: 범례를 숨겨 제목 줄을 한 줄로 */
@@ -711,13 +687,13 @@ html, body { background: #fff; }
 .toolbar #stats { order: 99; flex-basis: 100%; text-align: right; margin: 0; }
 .smag { flex: none; color: var(--muted); transition: color 0.2s; }
 .tsearch:focus-within .smag { color: var(--text); }
-.tsearch.ai .smag { color: #6E8EA6; }
+.tsearch.ai .smag { color: #4F7896; }
 /* AI 검색: 바닥 선이 하늘색 빛줄기로 흐르고, 칸 아래로 은은한 빛이 번진다. 바꾸는 순간 한 번 퍼지는 물결 */
-.toolbar .tsearch.ai::after { height: 2px; bottom: 1px; background: linear-gradient(90deg, rgba(180, 208, 228, 0), #8FB4CF 20%, #C9DDEB 45%, #B4D0E4 60%, #8FB4CF 80%, rgba(180, 208, 228, 0)); background-size: 200% 100%; animation: aiFlow 2.4s linear infinite; box-shadow: 0 2px 10px rgba(143, 180, 207, 0.55); }
-.toolbar .tsearch.ai input::placeholder { color: #6E8EA6; }
-.toolbar .tsearch.ai.pop::before { content: ''; position: absolute; left: 0; bottom: 0; width: 100%; height: 34px; border-radius: 10px; background: radial-gradient(ellipse at 15% 100%, rgba(180, 208, 228, 0.55), transparent 70%); animation: aiPop 0.7s ease-out forwards; pointer-events: none; }
+.toolbar .tsearch.ai::after { height: 1.5px; bottom: 0; background: linear-gradient(90deg, rgba(110, 155, 189, 0), #6E9BBD 20%, #A9CAE0 45%, #8FB4CF 60%, #6E9BBD 80%, rgba(110, 155, 189, 0)); background-size: 200% 100%; animation: aiFlow 2.4s linear infinite; box-shadow: 0 2px 10px rgba(143, 180, 207, 0.55); }
+.toolbar .tsearch.ai input::placeholder { color: #4F7896; }
+.toolbar .tsearch.ai.pop::before { content: ''; position: absolute; left: 0; bottom: 0; width: 100%; height: 34px; border-radius: 10px; background: radial-gradient(ellipse at 15% 100%, rgba(143, 180, 207, 0.8), transparent 70%); animation: aiPop 0.7s ease-out forwards; pointer-events: none; }
 #mChat { position: relative; }
-#mChat::after { content: '✦'; position: absolute; top: -5px; right: -3px; font-size: 9px; color: #8FB4CF; opacity: 0; transform: scale(0.3) rotate(-30deg); transition: opacity 0.2s, transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
+#mChat::after { content: '✦'; position: absolute; top: -5px; right: -3px; font-size: 9px; color: #6E9BBD; opacity: 0; transform: scale(0.3) rotate(-30deg); transition: opacity 0.2s, transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
 #mChat[aria-pressed="true"]::after { opacity: 1; transform: scale(1) rotate(0); animation: aiTwinkle 1.8s ease-in-out 0.5s infinite; }
 @keyframes aiFlow { from { background-position: 0% 0; } to { background-position: -200% 0; } }
 @keyframes aiPop { 0% { opacity: 0; transform: scaleX(0.2); transform-origin: left; } 30% { opacity: 1; } 100% { opacity: 0; transform: scaleX(1.05); } }
@@ -919,6 +895,11 @@ html, body, .window, .stage { background: transparent; }
         <button type="button" data-mode="bloom3d" role="radio" aria-checked="false">꽃</button>
         <button type="button" data-mode="dandelion3d" role="radio" aria-checked="false">분재</button>
         <button type="button" data-mode="cluster3d" role="radio" aria-checked="false">뿌리</button>
+        <button type="button" data-mode="antnest3d" role="radio" aria-checked="false">개미집</button>
+        <button type="button" data-mode="ontology3d" role="radio" aria-checked="false">체계</button>
+        <button type="button" data-mode="specimen3d" role="radio" aria-checked="false">측정</button>
+        <button type="button" data-mode="strands3d" role="radio" aria-checked="false">거미줄</button>
+        <button type="button" data-mode="points3d" role="radio" aria-checked="false">점구름</button>
       </div>
       <p class="eyebrow">분야</p>
       <ul class="legend" id="themes"></ul>
@@ -958,7 +939,7 @@ html, body, .window, .stage { background: transparent; }
   </div>
 </div>
 
-<script src="g3d.js"></script><script src="v3d_tree.js"></script><script src="v3d_bloom.js"></script><script src="v3d_cluster.js"></script><script src="v3d_dandelion.js"></script><script src="v2d_sankey.js"></script>
+<script src="g3d.js"></script><script src="v3d_specimen.js"></script><script src="v3d_strands.js"></script><script src="v3d_points.js"></script><script src="v3d_tree.js"></script><script src="v3d_bloom.js"></script><script src="v3d_cluster.js"></script><script src="v3d_dandelion.js"></script><script src="v2d_sankey.js"></script><script src="v3d_antnest.js"></script><script src="v3d_ontology.js"></script>
 <script src="vendor/three.min.js"></script><script src="vendor/bark_textures.js"></script>
 <script>/* force-graph (vasturiano, MIT) — Sillog 앱 Resources/graph/vendor 와 같은 파일 */
 // Version 1.51.4 force-graph - https://github.com/vasturiano/force-graph
@@ -989,7 +970,7 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
   const T = (id, theme, title, sum, win, w, ref, out, apps, topics, problems, later) =>
     ({ id, theme, title, sum, win, w, ref, out, apps, topics, problems, later });
   const TASKS = [];  // 앱이 setGraph로 실제 업무를 채운다
-  const MODE_NAME = { tree3d: '나무', bloom3d: '꽃', dandelion3d: '분재', cluster3d: '뿌리', map: '업무 카드', cosmos: '연결망', sky: '연결망', orbit: '원형 트리', sunburst: '관계 원', branch: '흐름', ring: '원형 연결', radial: '방사형 트리', layer: '층별 흐름', bubble: '동심원 버블',
+  const MODE_NAME = { specimen3d: '측정', strands3d: '거미줄', points3d: '점구름', tree3d: '나무', antnest3d: '개미집', ontology3d: '체계', bloom3d: '꽃', dandelion3d: '분재', cluster3d: '뿌리', map: '업무 카드', cosmos: '연결망', sky: '연결망', orbit: '원형 트리', sunburst: '관계 원', branch: '흐름', ring: '원형 연결', radial: '방사형 트리', layer: '층별 흐름', bubble: '동심원 버블',
                       tree: '시간 비중', flow: '시간 흐름', path: '전환 경로', gantt: '간트', cal: '달력' };
   const TASK = Object.fromEntries(TASKS.map(t => [t.id, t]));
   const THEME = Object.fromEntries(THEMES.map(t => [t.id, t]));
@@ -2457,13 +2438,16 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
 
   /* ==== VIEW:cosmos START ==== */
   // 연결망 3D: 원점의 "전체" 점에서 업무 중심으로 직선, 업무마다 기울어진 원반 모양 입자 구름. 원근 투영, 먼 것부터 그림.
-  let cvRaf = 0, cvPlay = null, cvT = 0, cvFocus = null, cvGal = null, cvHand = false, cvKeys = false, cvEsc = null, cvOut = null;   // 재생, 흐른 시간, 집중 업무, 고른 분야, 이동 도구 켬, 다시 그려도 유지
-  const CV_YAW = 0.5, CV_PIT = 0.35, CV_F = 1100, CV_BINS = 8;
+  let cvOver = false, cvRaf = 0, cvPlay = null, cvT = 0, cvFocus = null, cvGal = null, cvKeys = false, cvEsc = null;   // 재생, 흐른 시간, 집중 업무, 고른 분야, 이동 도구 켬, 다시 그려도 유지
+  const CV_YAW = 0.5, CV_PIT = 0.35, CV_F = 520, CV_BINS = 8;   // 초점 거리를 줄여 가까운 것은 크고 먼 것은 작게
   const cvV = { k: 1, x: 0, y: 0, yaw: CV_YAW, pit: CV_PIT, tx: 0, ty: 0, tz: 0 };   // k = 맞춤 대비 배율, x y = 화면 이동, t* = 카메라 목표점
   const cvRng = seed => { let s = seed >>> 0; return () => { s = (s + 0x6D2B79F5) >>> 0; let t = s; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
   // 원반 기저 벡터: 두 축 회전(ax: X축, ay: Y축)
   const cvRot = (v, ax, ay) => { let [x, y, z] = v; const c1 = Math.cos(ax), s1 = Math.sin(ax); [y, z] = [y * c1 - z * s1, y * s1 + z * c1]; const c2 = Math.cos(ay), s2 = Math.sin(ay); return [x * c2 + z * s2, y, -x * s2 + z * c2]; };
   const cvBasis = (ax, ay) => ({ bu: cvRot([1, 0, 0], ax, ay), bv: cvRot([0, 0, 1], ax, ay), bn: cvRot([0, 1, 0], ax, ay) });
+  // 연결망 배치와 표시 값
+  const CVT_DEF = { spin: 35, dist: 0.5, gap: 0.98, inner: 300, wide: 1.15, fit: 1.2, font: 10, clump: 0.7 };   // 10/8 조정 판에서 직접 맞춘 값
+  const CVT = CVT_DEF;
   function renderCosmos() {
     cancelAnimationFrame(cvRaf);
     setSeg($('mode'), 'mode', 'cosmos');
@@ -2476,7 +2460,7 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
     const maxM = Math.max(...pool.map(t => statsOf(t).mins));
     const nodes = pool.map(t => {
       const st = statsOf(t);
-      return { t, ss: st.ss, mins: st.mins, etc: t.theme === 'etc', r: Math.max(7, Math.min(34, 5 + 29 * Math.sqrt(st.mins / maxM))), own: [], c: [0, 0, 0], Rc: 0 };
+      return { t, ss: st.ss, mins: st.mins, etc: t.theme === 'etc', r: Math.max(6, Math.min(20, 5 + 15 * Math.sqrt(st.mins / maxM))), own: [], c: [0, 0, 0], Rc: 0 };
     });
     const NODE = new Map(nodes.map(n => [n.t.id, n]));
     const reg = new Map();                                   // 함께 쓸 수 있는 항목 키 -> { name, k, users }
@@ -2529,21 +2513,16 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
     });
     parts.forEach((p, i) => { p.i = i; });
     // 3. 중심 배치: 상위 분류마다 구 위의 방향(피보나치), 그 분류 업무는 방향 근처에 거리 R로
-    const CHEV = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
-    const CHK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
     const head0 = `
       <header class="fhead">
         <h1>연결망</h1>
         <p class="fsum">업무 ${nodes.length}개, 세션 ${nodes.reduce((a, n) => a + n.ss.length, 0)}개, 자료 ${nodes.reduce((a, n) => a + n.own.length, 0) + shared.length}개</p>
-        <div class="cv-dd"><button type="button" class="cv-ddb" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="cv-ddl" aria-label="업무 고르기"><span></span>${CHEV}</button><div class="cv-ddl" id="cv-ddl" role="listbox" aria-label="업무" hidden></div></div>
       </header>`;
     const svg = p => `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
-    const IC = { in: svg('<path d="M5 12h14"/><path d="M12 5v14"/>'), out: svg('<path d="M5 12h14"/>'), hand: svg('<path d="M12 3v18"/><path d="M3 12h18"/><path d="m9 6 3-3 3 3"/><path d="m9 18 3 3 3-3"/><path d="m6 9-3 3 3 3"/><path d="m18 9 3 3-3 3"/>'), fit: svg('<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>'),
-      play: svg('<polygon points="6 3 20 12 6 21 6 3"/>'), pause: svg('<rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/>') };
-    const btn = (a, label, ic) => `<button type="button" data-a="${a}" aria-label="${label}" title="${label}">${ic}</button>`;
-    $('main').innerHTML = head0 + `<div class="cvwrap"><canvas class="cvc" tabindex="0" aria-label="연결망, 끌어서 회전, Shift+끌기로 이동, H로 이동 도구 켜고 끄기, 방향키로 이동, 더하기와 빼기로 확대와 축소, 스페이스로 재생과 멈춤"></canvas><div class="cvtip" hidden></div><aside class="cv-side" hidden></aside><div class="cv-card" hidden></div><div class="cvctl" role="group" aria-label="보기 조작"><button type="button" data-a="hand" aria-pressed="false" aria-label="이동 도구 (H)" title="이동 도구 (H)">${IC.hand}</button>${btn('in', '확대', IC.in)}${btn('out', '축소', IC.out)}${btn('fit', '화면에 맞춤', IC.fit)}<button type="button" data-a="play"></button></div></div>`;
-    $('main').classList.add('meshbg'); bgOff = G3D.meshBg($('main'), 0.34);   // 포트폴리오 라이트처럼 옅은 갈색 흐름
-    const wrap = $('main').querySelector('.cvwrap'), cv = wrap.querySelector('canvas.cvc'), tip = wrap.querySelector('.cvtip'), sum = wrap.querySelector('.cv-side'), card = wrap.querySelector('.cv-card'), ctl = wrap.querySelector('.cvctl'), ddb = $('main').querySelector('.cv-ddb'), ddl = $('main').querySelector('.cv-ddl'), dd = ddb.parentNode;
+    $('main').innerHTML = head0 + `<div class="cvwrap"><canvas class="cvc" tabindex="0" aria-label="연결망"></canvas><div class="cvtip" hidden></div><aside class="cv-side" hidden></aside><div class="cv-card" hidden></div></div>`;
+    $('main').classList.add('meshbg'); bgOff = G3D.meshBg($('main'), 0.1);    // 갈색 흐름은 아주 옅게: 점과 글자가 배경에 묻히지 않게
+    const wrap = $('main').querySelector('.cvwrap');
+    const cv = wrap.querySelector('canvas.cvc'), tip = wrap.querySelector('.cvtip'), sum = wrap.querySelector('.cv-side'), card = wrap.querySelector('.cv-card');
     // 창 크기를 그대로 따른다 (최소값이 크면 작은 창에서 그림과 왼쪽 업무 카드가 창 밖으로 잘린다). 창 크기가 바뀌면 resize 에서 다시 그린다
     const W = Math.max(320, $('main').clientWidth - 48);
     const H = Math.max(200, $('main').clientHeight - $('main').querySelector('.fhead').offsetHeight - 14 - 48 - 12);
@@ -2554,9 +2533,10 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
     }));
     nodes.forEach(n => {
       const R = cvRng(hash('p' + n.t.id)), d = dirs.get(n.t.theme), g = () => R() + R() + R() - 1.5;
-      let v = [d[0] + g() * 0.7, d[1] + g() * 0.7, d[2] + g() * 0.7];
+      const spread = 0.75 - 0.6 * CVT.clump;                      // 모을수록 분야 방향에서 덜 벗어난다
+      let v = [d[0] + g() * spread, d[1] + g() * spread, d[2] + g() * spread];
       const l = Math.hypot(...v) || 1;
-      const dist = 140 + 260 * R() - 40 * Math.sqrt(n.mins / maxM);
+      const dist = (330 + (R() - 0.5) * 320 * (1 - 0.7 * CVT.clump)) * CVT.dist - 40 * Math.sqrt(n.mins / maxM);   // 같은 분야는 비슷한 거리에
       n.c = v.map(q => q / l * dist);
     });
     for (let it = 0; it < 80; it++) {                         // 구름끼리 너무 겹치지 않게 밀어냄
@@ -2564,15 +2544,21 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
         const A = nodes[i], B = nodes[j];
         const d3 = [B.c[0] - A.c[0], B.c[1] - A.c[1], B.c[2] - A.c[2]];
         let d = Math.hypot(...d3);
-        const want = (A.Rc + B.Rc) * 0.42;
+        const want = (A.Rc + B.Rc) * CVT.gap;
         if (d >= want) continue;
         if (d < 0.01) { d3[0] = 1; d = 1; }
         const m = (want - d) / 2 * 0.4;
         for (let q = 0; q < 3; q++) { A.c[q] -= d3[q] / d * m; B.c[q] += d3[q] / d * m; }
       }
-      nodes.forEach(n => { const d = Math.hypot(...n.c) || 1; if (d < 120) n.c = n.c.map(q => q / d * 120); });
+      if (CVT.clump > 0) {                                        // 분야 가운데로 조금씩 당겨 무리를 만든다 (겹침 밀어내기와 번갈아)
+        const cen = new Map();
+        nodes.forEach(n => { const c = cen.get(n.t.theme) || [0, 0, 0, 0]; c[0] += n.c[0]; c[1] += n.c[1]; c[2] += n.c[2]; c[3]++; cen.set(n.t.theme, c); });
+        const pull = 0.08 * CVT.clump;
+        nodes.forEach(n => { const c = cen.get(n.t.theme); for (let q = 0; q < 3; q++) n.c[q] += (c[q] / c[3] - n.c[q]) * pull; });
+      }
+      nodes.forEach(n => { const d = Math.hypot(...n.c) || 1; if (d < CVT.inner) n.c = n.c.map(q => q / d * CVT.inner); });
     }
-    nodes.forEach(n => { n.c[0] *= 1.35; });                   // 가로로 넓게
+    nodes.forEach(n => { n.c[0] *= CVT.wide; });                   // 가로로 넓게
     shared.forEach(v => { v.pv.c = [0, 1, 2].map(q => v.users.reduce((s, u) => s + u.c[q], 0) / v.users.length); });
     // 분야 = 은하: 그 분야 업무들의 가운데(c)에 빛무리, 핵(core)은 가운데에서 원점 쪽으로 20% 당겨 업무 원에 가리지 않게 한다
     const gals = themes.map(th => {
@@ -2581,6 +2567,15 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
       const R3 = Math.max(90, ...g.map(n => Math.hypot(n.c[0] - c[0], n.c[1] - c[1], n.c[2] - c[2]) + n.Rc * 0.75));
       return { th, g, c, core: c.map(q => q * 0.8), R3, color: th.color || col.muted, ids: new Set(g.map(n => n.t.id)) };
     });
+    const cvVivid = hex => {   // 흐름 보기 vivid 와 같은 식: 채도 x1.55, 밝기 0.44~0.52
+      const n = parseInt(String(hex).replace('#', ''), 16); if (isNaN(n)) return hex;
+      const r = (n >> 16 & 255) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255, mx = Math.max(r, g, b), mn = Math.min(r, g, b); let h = 0, s = 0, l = (mx + mn) / 2;
+      if (mx !== mn) { const d = mx - mn; s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn); h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h /= 6; }
+      s = Math.min(1, s * 1.55); l = Math.min(0.52, Math.max(0.44, l * 1.05));
+      const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q, f = t => { t = (t + 1) % 1; return t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; };
+      return '#' + [f(h + 1 / 3), f(h), f(h - 1 / 3)].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
+    };
+    gals.forEach(g => { g.vc = g.th.id === 'etc' ? '#6f6560' : '#24150F'; });   // 단색: 브랜드 갈색 하나
     const GAL = new Map(gals.map(x => [x.th.id, x]));
     if (cvGal && !GAL.has(cvGal)) cvGal = null;
     const rgba = (hex, a) => { const v = parseInt(String(hex).replace('#', ''), 16); return `rgba(${(v >> 16) & 255},${(v >> 8) & 255},${v & 255},${a})`; };
@@ -2594,17 +2589,44 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
       if (!s) { s = isHex(hex) ? rgbS(mixA(RGB(hex), BG, 0.62 * lv / 7)) : hex; FOGC.set(key, s); }
       return s;
     };
+    // 구 느낌: 색 문자열(rgb 또는 hex) -> 밝게/어둡게. 입자는 24px 스프라이트 하나를 캐시해 크기만 바꿔 찍는다
+    const toRGB = x => { const m = /^rgb\((\d+),(\d+),(\d+)\)$/.exec(x); return m ? [+m[1], +m[2], +m[3]] : isHex(x) ? RGB(x) : [90, 90, 90]; };
+    const shade = (x, f) => { const A = toRGB(x); return rgbS(f >= 0 ? mixA(A, [255, 255, 255], f) : mixA(A, [20, 12, 8], -f)); };
+    const SPR = new Map();
+    const sprite = (c, soft) => {
+      const key = c + (soft ? 's' : ''); let o = SPR.get(key);
+      if (o) return o;
+      o = document.createElement('canvas'); o.width = o.height = 24;
+      const g = o.getContext('2d'), r = 12, gr = g.createRadialGradient(8, 7.5, 0.5, 12, 12, r);
+      if (soft) { const q = toRGB(c).map(Math.round).join(','); gr.addColorStop(0, `rgba(${q},0.9)`); gr.addColorStop(0.45, `rgba(${q},0.6)`); gr.addColorStop(1, `rgba(${q},0)`); }
+      else { gr.addColorStop(0, shade(c, 0.14)); gr.addColorStop(0.6, c); gr.addColorStop(1, shade(c, -0.12)); }
+      g.fillStyle = gr; g.beginPath(); g.arc(12, 12, soft ? 12 : 11.5, 0, 6.2832); g.fill();
+      SPR.set(key, o); return o;
+    };
+    // 광점 스프라이트: 색 x 안개 단계(0 가까움~7 멂). 가까우면 또렷한 밝은 심지, 멀수록 퍼지고 배경색 쪽으로 옅어진다
+    const PSPR = new Map();
+    const psprite = (hex, lv) => {
+      const key = hex + lv; let o = PSPR.get(key);
+      if (o) return o;
+      o = document.createElement('canvas'); o.width = o.height = 48;
+      const g = o.getContext('2d'), b = Math.max(0, (lv - 1) / 6), A = mixA(RGB(hex), BG, 0.5 * lv / 7), q = A.map(Math.round).join(','), W_ = mixA(A, [255, 255, 255], 0.55 * (1 - b)).map(Math.round).join(',');
+      const gr = g.createRadialGradient(24, 24, 0, 24, 24, 24), k = 1 - 0.35 * lv / 7;
+      gr.addColorStop(0, `rgba(${W_},${k})`); gr.addColorStop(0.1 + 0.08 * b, `rgba(${q},${k * (1 - 0.25 * b)})`); gr.addColorStop(0.24 + 0.1 * b, `rgba(${q},${k * (0.7 - 0.3 * b)})`);
+      gr.addColorStop(0.55, `rgba(${q},${0.16 * k})`); gr.addColorStop(1, `rgba(${q},0)`);
+      g.fillStyle = gr; g.fillRect(0, 0, 48, 48);
+      PSPR.set(key, o); return o;
+    };
     const Rs = Math.max(200, ...nodes.map(n => Math.hypot(...n.c) + n.Rc));    // 장면 반지름(깊이 정규화)
     const half = Math.max(...nodes.map(n => Math.max(Math.hypot(n.c[0], n.c[2]), Math.abs(n.c[1])) + n.Rc * 0.7));
-    const kb = 1.15 * Math.min(W, H) / (2 * half);             // 맞춤: 장면 범위가 짧은 변의 약 1.15배
+    const kb = CVT.fit * 0.78 * Math.min(W, H) / (2 * half);   // 한 발 뒤로: 원근을 키운 뒤에도 앞쪽 원까지 화면 안에 들어오게              // 맞춤: 장면 범위가 짧은 변 안에 들어오게(가장자리 잘림 줄임)
     const rel = new Map(nodes.map(n => [n.t.id, new Set([n.t.id, ...related(n.t, pool).keys()])]));
     // 4. 그리기
     const dpr = window.devicePixelRatio || 1;
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); cv.style.width = W + 'px'; cv.style.height = H + 'px';
     const ctx = cv.getContext('2d');
     const HOVER = { n: null, p: null, g: null }, HI = { k: null, name: null, tid: null };
-    const FONT = s => `${s}px -apple-system, "Apple SD Gothic Neo", sans-serif`;
-    ctx.font = FONT(11);
+    const FONT = s => `${s}px "SUIT", -apple-system, "Apple SD Gothic Neo", sans-serif`;
+    ctx.font = '400 ' + FONT(CVT.font);
     nodes.forEach(n => {
       let s = n.t.title;
       while (s.length > 2 && ctx.measureText(s).width > 150) s = s.slice(0, -1);
@@ -2622,8 +2644,8 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
     };
     // 보기 변환과 애니메이션
     const fitAll = () => ({ k: 1, x: 0, y: 0, tx: 0, ty: 0, tz: 0, yaw: CV_YAW, pit: CV_PIT });
-    const fitOf = n => ({ k: Math.max(0.4, Math.min(6, 0.7 * Math.min(W, H) / (2 * n.Rc * kb))), x: 0, y: 0, tx: n.c[0], ty: n.c[1], tz: n.c[2] });
-    const fitGal = g => ({ k: Math.max(0.4, Math.min(6, 0.75 * Math.min(W, H) / (2 * g.R3 * kb))), x: 0, y: 0, tx: g.c[0], ty: g.c[1], tz: g.c[2] });
+    const fitOf = n => ({ k: Math.max(1, Math.min(3, 0.7 * Math.min(W, H) / (2 * n.Rc * kb))), x: 0, y: 0, tx: n.c[0], ty: n.c[1], tz: n.c[2] });
+    const fitGal = g => ({ k: Math.max(1, Math.min(3, 0.75 * Math.min(W, H) / (2 * g.R3 * kb))), x: 0, y: 0, tx: g.c[0], ty: g.c[1], tz: g.c[2] });
     const target = () => (cvFocus ? fitOf(NODE.get(cvFocus)) : cvGal ? fitGal(GAL.get(cvGal)) : fitAll());
     let anim = null, raf = 0, last = 0;
     const kick = () => { if (!raf) raf = cvRaf = requestAnimationFrame(frame); };
@@ -2633,12 +2655,12 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
       kick();
     };
     const zoomAt = (mx, my, nk) => {
-      nk = Math.max(0.4, Math.min(6, nk));
+      nk = Math.max(1, Math.min(3, nk));
       const cx = mx - W / 2, cy = my - H / 2;
       cvV.x = cx - (cx - cvV.x) * nk / cvV.k; cvV.y = cy - (cy - cvV.y) * nk / cvV.k; cvV.k = nk; anim = null; kick();
     };
     const zoomBy = (f, dur) => {
-      const nk = Math.max(0.4, Math.min(6, cvV.k * f));
+      const nk = Math.max(1, Math.min(3, cvV.k * f));
       go({ k: nk, x: cvV.x * nk / cvV.k, y: cvV.y * nk / cvV.k }, dur);
     };
     function draw() {
@@ -2654,6 +2676,8 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
       const tOf = z => Math.max(0, Math.min(1, (z + Rs) / (2 * Rs)));       // 0 = 가까움, 1 = 멈
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, W, H);
+      // 곡선: 끝점 사이를 원점 쪽으로 살짝 휜 2차 곡선으로 그려 호처럼 읽히게 한다
+      const qline = (e, bow) => { const dx = e[2] - e[0], dy = e[3] - e[1]; ctx.moveTo(e[0], e[1]); ctx.quadraticCurveTo((e[0] + e[2]) / 2 - dy * bow, (e[1] + e[3]) / 2 + dx * bow, e[2], e[3]); };
       // 입자 투영과 깊이 구간 나누기
       const sq = Math.sqrt(K);
       for (let i = 0; i < NP; i++) {
@@ -2681,14 +2705,14 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
       [...gals].sort((a, b) => b.hz - a.hz).forEach(g => {
         if (g.hx + g.hr < 0 || g.hx - g.hr > W || g.hy + g.hr < 0 || g.hy - g.hr > H) return;
         const al = !GF || GF === g ? 1 : 0.35, grd = ctx.createRadialGradient(g.hx, g.hy, 0, g.hx, g.hy, g.hr);
-        grd.addColorStop(0, rgba(g.color, 0.2 * al)); grd.addColorStop(0.45, rgba(g.color, 0.09 * al)); grd.addColorStop(1, rgba(g.color, 0));
+        grd.addColorStop(0, `rgba(255,255,255,${0.7 * al})`); grd.addColorStop(0.45, `rgba(255,255,255,${0.3 * al})`); grd.addColorStop(1, 'rgba(255,255,255,0)');   // 칙칙한 갈색 대신 밝은 흰 빛무리
         ctx.globalAlpha = 1; ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(g.hx, g.hy, g.hr, 0, 6.2832); ctx.fill();
       });
       // 직선: 원점에서 분야 핵으로. 올리거나 고른 업무·분야는 핵에서 업무까지 강조(집중 보기에서는 그 업무에서 함께 쓴 업무로)
       ctx.lineWidth = 1;
       if (F) {
-        ctx.strokeStyle = col.accent; ctx.globalAlpha = 0.65; ctx.beginPath();
-        fset.forEach(id => { if (id === F.t.id) return; const o = NODE.get(id), e = edge({ x: F.sx, y: F.sy }, { x: o.sx, y: o.sy }, F.sr, o.sr); ctx.moveTo(e[0], e[1]); ctx.lineTo(e[2], e[3]); });
+        ctx.strokeStyle = '#24150F'; ctx.globalAlpha = 0.8; ctx.beginPath();
+        fset.forEach(id => { if (id === F.t.id) return; const o = NODE.get(id), e = edge({ x: F.sx, y: F.sy }, { x: o.sx, y: o.sy }, F.sr, o.sr); qline(e, 0.12); });
         ctx.stroke();
       } else {
         const hot = new Set(hn ? [hn] : hp ? (hp.users || [hp.n]) : hg ? hg.g : []);
@@ -2696,20 +2720,26 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
         if (hg) hotG.add(hg);
         // 선 색은 양 끝 깊이의 안개색을 잇는다: 먼 쪽으로 갈수록 옅어진다
         const Ot = tOf(rot(-cvV.tx, -cvV.ty, -cvV.tz)[2]);
-        ctx.globalAlpha = hotG.size ? 0.22 : 0.38;
+        // 원점에서 분야 핵으로: 기준을 잡도록 늘 그리되, 도식처럼 튀지 않게 가늘고 옅게
+        ctx.globalAlpha = hotG.size ? 0.15 : 0.32;
         gals.forEach(g => {
           if (hotG.has(g)) return;
           const e = edge(O, { x: g.sx, y: g.sy }, 0, 6), gr = ctx.createLinearGradient(e[0], e[1], e[2], e[3]);
-          gr.addColorStop(0, fogged(col.text, Ot)); gr.addColorStop(1, fogged(col.text, g.tt));
-          ctx.strokeStyle = gr; ctx.lineWidth = 1 + 0.6 * (1 - g.tt); ctx.beginPath(); ctx.moveTo(e[0], e[1]); ctx.lineTo(e[2], e[3]); ctx.stroke();
+          gr.addColorStop(0, fogged(col.text, Ot)); gr.addColorStop(1, fogged(g.vc, g.tt));
+          const bw = 0.12 + 0.1 * ((hash(g.th.id) % 3) - 1) * 0.5;
+          ctx.strokeStyle = gr; ctx.lineWidth = 0.5 + 0.5 * (1 - g.tt); ctx.beginPath(); qline(e, bw); ctx.stroke();
         });
         ctx.lineWidth = 1;
         if (hotG.size) {
-          ctx.strokeStyle = col.accent; ctx.globalAlpha = 0.85; ctx.lineWidth = 1.5; ctx.beginPath();
-          hotG.forEach(g => { const e = edge(O, { x: g.sx, y: g.sy }, 0, 6); ctx.moveTo(e[0], e[1]); ctx.lineTo(e[2], e[3]); });
-          hot.forEach(n => { const g = GAL.get(n.t.theme); if (!g) return; const e = edge({ x: g.sx, y: g.sy }, { x: n.sx, y: n.sy }, 6, n.sr); ctx.moveTo(e[0], e[1]); ctx.lineTo(e[2], e[3]); });
-          if (hn) rel.get(hn.t.id).forEach(id => { if (id === hn.t.id) return; const o = NODE.get(id), e = edge({ x: hn.sx, y: hn.sy }, { x: o.sx, y: o.sy }, hn.sr, o.sr); ctx.moveTo(e[0], e[1]); ctx.lineTo(e[2], e[3]); });
-          ctx.stroke();
+          const hotPath = () => {
+            ctx.beginPath();
+            hotG.forEach(g => qline(edge(O, { x: g.sx, y: g.sy }, 0, 6), 0.14));
+            hot.forEach(n => { const g = GAL.get(n.t.theme); if (!g) return; qline(edge({ x: g.sx, y: g.sy }, { x: n.sx, y: n.sy }, 6, n.sr), 0.1); });
+            if (hn) rel.get(hn.t.id).forEach(id => { if (id === hn.t.id) return; const o = NODE.get(id); qline(edge({ x: hn.sx, y: hn.sy }, { x: o.sx, y: o.sy }, hn.sr, o.sr), 0.12); });
+            ctx.stroke();
+          };
+          ctx.strokeStyle = '#24150F'; ctx.globalAlpha = 0.1; ctx.lineWidth = 6; hotPath();      // 가까운 선의 번짐
+          ctx.globalAlpha = 0.85; ctx.lineWidth = 1.5; hotPath();
         }
       }
       const set = F ? fset : hn ? rel.get(hn.t.id) : hp ? new Set((hp.users || [hp.n]).map(u => u.t.id)) : hg ? hg.ids : null;
@@ -2722,27 +2752,34 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
           ctx.globalAlpha = 0.22; ctx.strokeStyle = fogged(col.text, n.tt); ctx.lineWidth = 1; ctx.stroke();
         }
         ctx.globalAlpha = (n.etc ? 0.75 : 1) * dim(n);
-        ctx.fillStyle = fogged(n.etc ? col.muted : col.text, n.tt);
-        ctx.beginPath(); ctx.arc(n.sx, n.sy, n.sr, 0, 6.2832); ctx.fill();
-        if (isHot(n)) { ctx.globalAlpha = 1; ctx.strokeStyle = col.accent; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(n.sx, n.sy, n.sr + 3, 0, 6.2832); ctx.stroke(); }
+        const gl = GAL.get(n.t.theme), A = mixA(RGB(gl ? gl.vc : '#6f6560'), BG, 0.6 * n.tt * n.tt), q = A.map(Math.round).join(','), L = mixA(A, [255, 255, 255], 0.55).map(Math.round).join(','), al = ctx.globalAlpha, r = n.sr, fo = 1 - 0.4 * n.tt;
+        ctx.globalAlpha = al * fo;                                       // 납작하고 깔끔한 원: 그림자, 유리 효과 없이 한 색 (먼 것만 배경 쪽으로 옅어짐)
+        ctx.fillStyle = `rgb(${q})`; ctx.beginPath(); ctx.arc(n.sx, n.sy, r, 0, 6.2832); ctx.fill();
+        ctx.globalAlpha = al;
+        if (isHot(n)) { ctx.globalAlpha = 1; ctx.strokeStyle = '#24150F'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(n.sx, n.sy, n.sr + 3, 0, 6.2832); ctx.stroke(); }
       };
       const drawPart = i => {
         const p = parts[i], near = 1 - PT[i];
-        let a = (0.55 + 0.4 * near) * (0.85 + 0.5 * (p.a - 0.25)), c = p.acc ? col.accent : col.text, sz = PS[i];
+        const gp = GAL.get((p.users ? p.users[0] : p.n).t.theme), vc = gp ? gp.vc : '#6f6560';
+        let a = Math.min(1, (0.8 + 0.2 * near) * (1.05 + 0.5 * (p.a - 0.25))), c = p.acc ? '#24150F' : vc, sz = PS[i];
         if (F) {
           const us = p.users || [p.n];
-          if (us.includes(F)) { if (p.it) { c = KINDS[p.it.k].color; a = 1; sz *= 1.25; if (HI.name === p.it.name && HI.k === p.it.k) { c = col.accent; sz = Math.max(sz * 2, 4); } } }
-          else { c = col.text; a *= us.some(u => fset.has(u.t.id)) ? 0.45 : 0.12; }
+          if (us.includes(F)) { if (p.it) { c = '#24150F'; a = 1; sz *= 1.25; if (HI.name === p.it.name && HI.k === p.it.k) { c = '#24150F'; sz = Math.max(sz * 2, 4); } } }
+          else { c = vc; a *= us.some(u => fset.has(u.t.id)) ? 0.45 : 0.12; }
         } else a *= lit(p);
         if (p.blur && near > 0.6) { sz *= 2.2; a *= 0.45; }          // 앞쪽 일부는 크게 옅게(흐림 근사)
+        const lv = Math.min(7, Math.floor(PT[i] * 8));                  // 초점 흐림: 먼 것은 크고 번진 스프라이트
+        if (PT[i] > 0.5) sz *= 1 + 0.9 * (PT[i] - 0.5);
         ctx.globalAlpha = Math.min(1, a);
-        ctx.fillStyle = fogged(c, PT[i]);
-        ctx.beginPath(); ctx.arc(PX[i], PY[i], sz, 0, 6.2832); ctx.fill();
+        const d = sz * 3.4;
+        ctx.drawImage(psprite(isHex(c) ? c : '#24150F', lv), PX[i] - d / 2, PY[i] - d / 2, d, d);
       };
       const drawGal = g => {
         ctx.globalAlpha = !GF || GF === g ? 1 : 0.35;
-        ctx.fillStyle = fogged(g.color, g.tt); ctx.beginPath(); ctx.arc(g.sx, g.sy, 6, 0, 6.2832); ctx.fill();
-        if (cvGal === g.th.id || HOVER.g === g) { ctx.globalAlpha = 1; ctx.strokeStyle = col.accent; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(g.sx, g.sy, 10, 0, 6.2832); ctx.stroke(); }
+        const lv = Math.min(7, Math.floor(g.tt * 8));
+        ctx.drawImage(psprite(g.vc, 0), g.sx - 16, g.sy - 16, 32, 32);
+        ctx.fillStyle = fogged(g.vc, g.tt); ctx.beginPath(); ctx.arc(g.sx, g.sy, 4.6, 0, 6.2832); ctx.fill();
+        if (cvGal === g.th.id || HOVER.g === g) { ctx.globalAlpha = 1; ctx.strokeStyle = '#24150F'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(g.sx, g.sy, 10, 0, 6.2832); ctx.stroke(); }
       };
       // 입자, 업무 원, 분야 핵을 한 줄로 세워 먼 것부터 그린다(앞의 것이 뒤의 것을 가림)
       let m = 0;
@@ -2752,12 +2789,12 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
       const zk = i => (i < NP ? PT[i] : i < NN ? nodes[i - NP].tt : gals[i - NN].tt);
       DI.subarray(0, m).sort((a, b) => zk(b) - zk(a)).forEach(i => (i < NP ? drawPart(i) : i < NN ? drawNode(nodes[i - NP]) : drawGal(gals[i - NN])));
       ctx.globalAlpha = 1;
-      ctx.fillStyle = col.text; ctx.beginPath(); ctx.arc(O.x, O.y, 3.5, 0, 6.2832); ctx.fill();
+      ctx.fillStyle = col.text; ctx.beginPath(); ctx.arc(O.x, O.y, 3.5, 0, 6.2832); ctx.fill();   // 원점 점: 늘 보이는 기준
       // 글씨: 화면 좌표, 크기 고정, 앞쪽부터 겹치면 숨김
-      ctx.textAlign = 'center'; ctx.lineJoin = 'round'; ctx.strokeStyle = col.canvas; ctx.lineWidth = 4.5;
+      ctx.textAlign = 'center'; ctx.shadowColor = 'rgba(246,245,244,0.95)'; ctx.shadowBlur = 5;   // 다른 보기 글씨와 같은 빛무리
       const boxes = [], free = b => !boxes.some(o => b.x < o.x + o.w && o.x < b.x + b.w && b.y < o.y + o.h && o.y < b.y + b.h);
       nodes.forEach(n => boxes.push({ x: n.sx - n.sr, y: n.sy - n.sr, w: n.sr * 2, h: n.sr * 2 }));
-      ctx.font = '600 ' + FONT(12); ctx.textBaseline = 'middle';
+      ctx.font = '600 ' + FONT(CVT.font); ctx.textBaseline = 'middle';
       // 분야 이름은 업무 이름보다 먼저 자리를 잡는다. 앞쪽 분야부터 핵 위, 다른 분야 이름과 겹치면 핵 아래, 그래도 겹치면 이번 프레임은 생략. 핵이 앞의 업무 원에 가려지면 이름도 숨김
       const gb = [];
       [...gals].sort((a, b) => a.hz - b.hz).forEach(g => {
@@ -2768,10 +2805,10 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
         if (sy === undefined || g.sx < 0 || g.sx > W || sy < 8 || sy > H) return;
         const b = { x: g.sx - w / 2, y: sy - 8, w, h: 16 };
         g.lb = b; gb.push(b); boxes.push(b, { x: g.sx - 10, y: g.sy - 10, w: 20, h: 20 });
-        ctx.globalAlpha = !GF || GF === g ? 1 : 0.35; ctx.fillStyle = fogged(col.text, g.tt);
-        ctx.strokeText(g.th.name, g.sx, sy); ctx.fillText(g.th.name, g.sx, sy);
+        ctx.globalAlpha = !GF || GF === g ? 1 : 0.35; ctx.fillStyle = '#24150F';
+        ctx.fillText(g.th.name, g.sx, sy);
       });
-      ctx.font = FONT(11); ctx.textBaseline = 'top';
+      ctx.font = '500 ' + FONT(CVT.font); ctx.textBaseline = 'top';
       const prio = n => (n === F ? 1e9 : F && fset.has(n.t.id) ? 1e6 : HOVER.n === n || HI.tid === n.t.id ? 1e8 : 0) - n.cz;
       [...nodes].sort((a, b) => prio(b) - prio(a)).forEach(n => {
         const sy = n.sy + n.sr + 4, on = dim(n) > 0.2;
@@ -2780,11 +2817,11 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
         const force = n === F || HOVER.n === n || HI.tid === n.t.id || (hp && on);
         if (!force && !free(b)) return;
         boxes.push(b);
-        ctx.globalAlpha = (F ? (n === F ? 1 : on ? 0.8 : 0.3) : on ? 1 : 0.3) * (0.45 + 0.55 * (1 - n.tt));
-        ctx.fillStyle = force || (F && on) ? col.text : col.muted;
-        ctx.strokeText(n.label, n.sx, sy); ctx.fillText(n.label, n.sx, sy);
+        ctx.globalAlpha = (F ? (n === F ? 1 : on ? 0.85 : 0.35) : on ? 1 : 0.35) * (0.45 + 0.55 * (1 - n.tt) * (1 - n.tt) + 0.0);
+        ctx.fillStyle = '#24150F';
+        ctx.fillText(n.label, n.sx, sy);
       });
-      ctx.globalAlpha = 1;
+      ctx.globalAlpha = 1; ctx.shadowBlur = 0;
     }
     function frame() {
       raf = 0;
@@ -2792,7 +2829,12 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
       if (!cv.isConnected) return;
       const dt = last ? Math.min(0.1, (now - last) / 1000) : 0;
       last = now;
-      if (cvPlay) { cvT += dt; cvV.yaw += dt * 6.2832 / 120; }
+      if (cvPlay && !drag && !cvFocus && !cvGal) { cvT += dt;   // 커서를 올려도 계속 돈다 (끄는 중에만 멈춤)
+        cvV.yaw += dt * 6.2832 / CVT.spin; }
+      if (!drag && (Math.abs(spin.y) > 0.02 || Math.abs(spin.p) > 0.02)) {
+        cvV.yaw += spin.y * dt; cvV.pit = Math.max(-1.3963, Math.min(1.3963, cvV.pit + spin.p * dt));
+        const f = Math.pow(0.04, dt); spin.y *= f; spin.p *= f;
+      } else if (!drag) spin.y = spin.p = 0;
       if (anim) {
         const u = Math.max(0, Math.min(1, (now - anim.t0) / anim.dur)), e = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
         KEYS.forEach(c => {
@@ -2803,7 +2845,7 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
         if (u >= 1) anim = null;
       }
       draw();
-      if (cvPlay || anim) kick(); else last = 0;
+      if (cvPlay || anim || spin.y || spin.p) kick(); else last = 0;
     }
     // 입력: 마지막으로 그린 화면 좌표로 판정(앞쪽 우선)
     const pick = e => {
@@ -2901,48 +2943,18 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
       card.style.left = Math.max(4, Math.min(W - card.offsetWidth - 4, mx + 16)) + 'px';
       card.style.top = Math.max(4, Math.min(H - card.offsetHeight - 4, my + 16)) + 'px';
     };
-    // 업무 고르기 목록
-    const opts = [{ id: '', label: '전체 업무' }];
-    let ddi = 0, ddo = false;
-    const ddHtml = () => {
-      let h = `<div class="cv-opt all" role="option" id="cvo0" data-i="0">${CHK}<span>전체 업무</span></div>`, i = 1;
-      themes.forEach(th => {
-        h += `<div class="cv-ddh" role="presentation">${dot(th.color)}${esc(th.name)}</div>`;
-        nodes.filter(n => n.t.theme === th.id).forEach(n => { opts[i] = { id: n.t.id }; h += `<div class="cv-opt" role="option" id="cvo${i}" data-i="${i}">${CHK}<span title="${esc(n.t.title)}">${esc(n.t.title)}</span><em>${fmt(n.mins)}</em></div>`; i++; });
-      });
-      ddl.innerHTML = h;
-    };
-    const ddMark = () => {
-      const cur = !cvFocus && cvGal ? -1 : Math.max(0, opts.findIndex(o => o.id === (cvFocus || '')));
-      ddl.querySelectorAll('.cv-opt').forEach((o, i) => { o.setAttribute('aria-selected', i === cur ? 'true' : 'false'); o.classList.toggle('act', ddo && i === ddi); });
-      ddb.firstChild.textContent = cvFocus ? NODE.get(cvFocus).t.title : cvGal ? GAL.get(cvGal).th.name + ' 분야' : '전체 업무';
-      if (ddo) { ddb.setAttribute('aria-activedescendant', 'cvo' + ddi); ddl.querySelector('#cvo' + ddi)?.scrollIntoView({ block: 'nearest' }); } else ddb.removeAttribute('aria-activedescendant');
-    };
-    const fitDd = () => {                                     // 목록은 버튼 왼쪽에 맞춰 열고, 본문 오른쪽을 넘치면 그만큼만 왼쪽으로(사이드바 밑으로는 안 들어가게)
-      ddl.style.left = '0px';
-      const r = ddl.getBoundingClientRect(), m = $('main').getBoundingClientRect(), over = r.right - (m.right - 8);
-      if (over > 0) ddl.style.left = -Math.min(over, Math.max(0, r.left - m.left - 8)) + 'px';
-    };
-    const ddOpen = o => {
-      ddo = o; ddl.hidden = !o; ddb.setAttribute('aria-expanded', o ? 'true' : 'false');
-      if (o) { fitDd(); ddi = Math.max(0, opts.findIndex(x => x.id === (cvFocus || ''))); }
-      ddMark();
-    };
     const setFocus = (id, dur = 400) => {
       cvFocus = id && NODE.has(id) ? id : null;
       if (!cvFocus || NODE.get(cvFocus).t.theme !== cvGal) cvGal = null;
       if (cvFocus) selectTask(cvFocus);
-      panel(); ddMark(); go(target(), dur);
+      panel(); go(target(), dur);
     };
     const setGal = (id, dur = 400) => {                       // 분야 하나만 모아 보기 (null = 전체)
       cvGal = id && GAL.has(id) ? id : null; cvFocus = null;
-      panel(); ddMark(); go(target(), dur);
+      panel(); go(target(), dur);
     };
-    const playBtn = () => { const b = ctl.querySelector('[data-a=play]'), l = cvPlay ? '멈춤' : '재생'; b.innerHTML = cvPlay ? IC.pause : IC.play; b.setAttribute('aria-label', l); b.title = l; };
-    const togglePlay = () => { cvPlay = !cvPlay; playBtn(); kick(); };
-    const handBtn = () => { const b = ctl.querySelector('[data-a=hand]'); b.setAttribute('aria-pressed', cvHand ? 'true' : 'false'); cv.style.cursor = cvHand ? 'grab' : 'default'; };
-    const toggleHand = () => { cvHand = !cvHand; handBtn(); };
     let drag = null, wasDrag = false;
+    const spin = { y: 0, p: 0 };                                // 놓은 뒤 이어서 도는 관성(rad/s)
     cv.addEventListener('wheel', e => {
       e.preventDefault();
       const b = cv.getBoundingClientRect(), d = e.deltaY * (e.deltaMode === 1 ? 16 : 1);
@@ -2950,7 +2962,7 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
     }, { passive: false });
     cv.addEventListener('pointerdown', e => {
       if (e.button !== 0) return;
-      drag = { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, moved: false }; wasDrag = false;
+      drag = { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, moved: false }; wasDrag = false; spin.y = spin.p = 0;
       cv.setPointerCapture(e.pointerId);
     });
     cv.addEventListener('pointermove', e => {
@@ -2959,8 +2971,8 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
         if (drag.moved) {
           const dx = e.clientX - drag.lx, dy = e.clientY - drag.ly;
           // 끌기 = 회전, Shift+끌기 = 이동. 이동 도구(손)를 켜면 반대가 된다. 회전의 좌우는 끄는 쪽으로 돌도록 yaw 를 뺀다 (상하는 그대로)
-          if (cvHand !== e.shiftKey) { cvV.x += dx; cvV.y += dy; }
-          else { cvV.yaw -= dx * 0.006; cvV.pit = Math.max(-1.3963, Math.min(1.3963, cvV.pit + dy * 0.006)); }
+          if (e.shiftKey) { cvV.x += dx; cvV.y += dy; }
+          else { cvV.yaw -= dx * 0.006; cvV.pit = Math.max(-1.3963, Math.min(1.3963, cvV.pit + dy * 0.006)); spin.y = spin.y * 0.5 - dx * 0.006 * 30 * 0.5; spin.p = spin.p * 0.5 + dy * 0.006 * 30 * 0.5; }
           anim = null; kick();
         }
         drag.lx = e.clientX; drag.ly = e.clientY;
@@ -2968,15 +2980,16 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
       }
       const { g, n, p, mx, my } = pick(e);
       HOVER.n = n; HOVER.p = p; HOVER.g = g || null;
-      cv.style.cursor = n || g ? 'pointer' : cvHand ? 'grab' : 'default';
+      cv.style.cursor = n || g ? 'pointer' : 'default';
       tip.hidden = !p && !g;
       if (n) cardOf(n, mx, my); else card.hidden = true;
       if (p || g) { tip.textContent = g ? `${g.th.name}, 업무 ${g.g.length}개` : tipText(p); tip.style.left = Math.min(W - tip.offsetWidth - 4, mx + 12) + 'px'; tip.style.top = Math.max(0, my - 30) + 'px'; }
       kick();
     });
-    const up = () => { if (drag) { wasDrag = drag.moved; drag = null; cv.style.cursor = cvHand ? 'grab' : 'default'; } };
+    const up = () => { if (drag) { wasDrag = drag.moved; drag = null; cv.style.cursor = 'default'; } };
     cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
-    cv.addEventListener('pointerleave', () => { if (drag) return; HOVER.n = null; HOVER.p = null; HOVER.g = null; tip.hidden = true; card.hidden = true; kick(); });
+    cv.addEventListener('pointerenter', () => { cvOver = true; });
+    cv.addEventListener('pointerleave', () => { cvOver = false; if (drag) return; HOVER.n = null; HOVER.p = null; HOVER.g = null; tip.hidden = true; card.hidden = true; kick(); });
     cv.addEventListener('click', e => {
       if (wasDrag) { wasDrag = false; return; }
       const { g, n } = pick(e);
@@ -2989,14 +3002,8 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
       else if (K === '+' || K === '=') { zoomBy(1.25, 150); e.preventDefault(); return; }
       else if (K === '-' || K === '_') { zoomBy(0.8, 150); e.preventDefault(); return; }
       else if (K === '0') { go(target(), 300); return; }
-      else if (K === ' ') { e.preventDefault(); togglePlay(); return; }
-      else if (K === 'h' || K === 'H' || K === 'ㅗ') { toggleHand(); return; }        // 한글 자판에서는 같은 키가 ㅗ
       else return;
       e.preventDefault(); anim = null; kick();
-    });
-    ctl.addEventListener('click', e => {
-      const a = e.target.closest('button')?.dataset.a;
-      if (a === 'in') zoomBy(1.4, 200); else if (a === 'out') zoomBy(1 / 1.4, 200); else if (a === 'fit') go(target(), 300); else if (a === 'play') togglePlay(); else if (a === 'hand') toggleHand();
     });
     sum.addEventListener('click', e => {
       const b = e.target.closest('button'), a = b?.dataset.a, t = cvFocus && NODE.get(cvFocus)?.t;
@@ -3013,27 +3020,12 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
     });
     sum.addEventListener('mouseleave', () => { HI.k = HI.name = HI.tid = null; kick(); });
     sum.addEventListener('click', e => { const t = e.target.closest('[data-ht]')?.dataset.ht; if (t) setFocus(t); });
-    ddHtml();
-    ddb.addEventListener('click', () => ddOpen(!ddo));
-    ddl.addEventListener('click', e => { const o = e.target.closest('.cv-opt'); if (!o) return; ddOpen(false); setFocus(opts[+o.dataset.i].id); ddb.focus(); });
-    ddl.addEventListener('mousemove', e => { const o = e.target.closest('.cv-opt'); if (o && +o.dataset.i !== ddi) { ddi = +o.dataset.i; ddMark(); } });
-    ddb.addEventListener('keydown', e => {
-      const K = e.key;
-      if (!ddo) { if (K === 'Enter' || K === ' ' || K === 'ArrowDown' || K === 'ArrowUp') { e.preventDefault(); ddOpen(true); } return; }
-      if (K === 'ArrowDown') ddi = Math.min(opts.length - 1, ddi + 1); else if (K === 'ArrowUp') ddi = Math.max(0, ddi - 1);
-      else if (K === 'Home') ddi = 0; else if (K === 'End') ddi = opts.length - 1;
-      else if (K === 'Enter' || K === ' ') { e.preventDefault(); ddOpen(false); setFocus(opts[ddi].id); return; }
-      else if (K === 'Tab') { ddOpen(false); return; }
-      else return;
-      e.preventDefault(); ddMark();
-    });
-    if (!cvKeys) { cvKeys = true; document.addEventListener('keydown', e => { if (e.key === 'Escape' && state.mode === 'cosmos' && !state.detail && cvEsc) cvEsc(); }); document.addEventListener('click', e => { if (state.mode === 'cosmos' && cvOut) cvOut(e); }); }
-    cvEsc = () => { if (!cv.isConnected) return; if (ddo) { ddOpen(false); ddb.focus(); } else if (cvFocus) { if (cvGal) setGal(cvGal); else setFocus(null); } else if (cvGal) setGal(null); };
-    cvOut = e => { if (cv.isConnected && ddo && !dd.contains(e.target)) ddOpen(false); };
+    if (!cvKeys) { cvKeys = true; document.addEventListener('keydown', e => { if (e.key === 'Escape' && state.mode === 'cosmos' && !state.detail && cvEsc) cvEsc(); }); }
+    cvEsc = () => { if (!cv.isConnected) return; if (cvFocus) { if (cvGal) setGal(cvGal); else setFocus(null); } else if (cvGal) setGal(null); };
     if (cvPlay === null) cvPlay = !reduce;
     if (cvFocus && !NODE.has(cvFocus)) cvFocus = null;
     Object.assign(cvV, cvFocus ? fitOf(NODE.get(cvFocus)) : cvGal ? fitGal(GAL.get(cvGal)) : { tx: 0, ty: 0, tz: 0 });    // 필터로 배치가 바뀌었을 수 있어 다시 맞춤
-    panel(); ddMark(); playBtn(); handBtn(); kick();                 // handBtn 이 커서도 맞춘다
+    panel(); kick();
     $('stats').textContent = `업무 ${nodes.length}개, 항목 ${shared.length + nodes.reduce((a, n) => a + n.own.length, 0)}개`;
     renderKinds(pool);
   }
@@ -3456,7 +3448,7 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
     v3dOff = window.V3D[name](main, { tasks, themes, kinds: KINDS, rel }, { open: openDetail });
   }
 
-  const FULL = new Set(['sky', 'branch', 'tree3d', 'bloom3d', 'dandelion3d', 'cluster3d',]);   // 왼쪽 여백 없이 캔버스를 꽉 채우는 보기
+  const FULL = new Set(['specimen3d', 'strands3d', 'points3d', 'sky', 'branch', 'tree3d', 'bloom3d', 'dandelion3d', 'cluster3d', 'antnest3d', 'ontology3d',]);   // 왼쪽 여백 없이 캔버스를 꽉 채우는 보기
   function render() {
     hot = null;
     skyOff();
@@ -3477,7 +3469,8 @@ qr.readability=function(t,n){var e=qr(t),r=qr(n);return(Math.max(e.getLuminance(
     renderNode();
     if (!state.detail) ({ map: renderMap, sunburst: renderSunburst, cosmos: renderCosmos, sky: renderSky, orbit: renderOrbit, branch: () => renderV3D('sankey'),   /* 가지 도표 = 생키(v2d_sankey.js). 예전 renderBranch 는 쓰지 않는다 */ ring: renderRing, radial: renderRadial, layer: renderLayer, bubble: renderBubble,
             tree: renderTree, flow: renderFlow, path: renderPath, gantt: renderGantt, cal: renderCal,
-            tree3d: () => renderV3D('tree'), bloom3d: () => renderV3D('bloom'), cluster3d: () => renderV3D('cluster'), dandelion3d: () => renderV3D('dandelion') })[m]();
+            tree3d: () => renderV3D('tree'), bloom3d: () => renderV3D('bloom'), cluster3d: () => renderV3D('cluster'), dandelion3d: () => renderV3D('dandelion'), antnest3d: () => renderV3D('antnest'), ontology3d: () => renderV3D('ontology'),
+            specimen3d: () => renderV3D('specimen'), strands3d: () => renderV3D('strands'), points3d: () => renderV3D('points') })[m]();
     if (!state.detail && (m === 'sunburst' || m === 'branch')) { $('main').classList.add('meshbg', 'glass'); bgOff = G3D.meshBg($('main'), 0.16); }   // 원형 비중, 가지 도표도 같은 갈색 흐름 바탕
     { // 지금 보기 제목과 요약을 필터 줄 왼쪽으로: 화면 안 제목 줄은 숨긴다
       const fh = $('main').querySelector('.fhead'), h = fh?.querySelector(':scope > h1')?.textContent, sum = fh?.querySelector(':scope > .fsum')?.textContent;

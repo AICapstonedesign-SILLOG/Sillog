@@ -14,6 +14,9 @@ final class ChatState: ObservableObject {
     @Published var draft = ""
     @Published var error: String?
     @Published var activeMessage: ConversationMessage?
+    /// 대화 맨 위 요약. 키 = 대화 ID, 값 = (요약할 때의 메시지 수, 요약). 메모리에만 둔다
+    @Published var summaries: [String: (count: Int, text: String)] = [:]
+    private var summarizing: Set<String> = []
     let projects: ProjectState
     let library: LibraryState
     private let db: WGDatabase
@@ -63,6 +66,7 @@ final class ChatState: ObservableObject {
             let loaded = try store.messages(conversation.id)
             current = conversation; messages = loaded; draft = ""; error = nil
             if let activeMessage, activeMessage.conversationID == conversation.id { replaceVisible(activeMessage) }
+            summarize(conversation.id)
         } catch { self.error = error.localizedDescription }
     }
 
@@ -266,7 +270,7 @@ final class ChatState: ObservableObject {
                 if let message = self.activeMessage {
                     self.replaceVisible(message)
                     do { try self.store.save(message) } catch { self.error = "응답 저장 실패: \(error.localizedDescription)"; succeeded = false }
-                    if succeeded { self.library.collect(message) }
+                    if succeeded { self.library.collect(message); self.summarize(message.conversationID) }
                 }
                 if let automationID, var job = self.automations.first(where: { $0.id == automationID }) {
                     job.lastStatus = succeeded ? "완료" : "실패 또는 중단 — 다음 예약에 실행"
@@ -321,6 +325,22 @@ final class ChatState: ObservableObject {
     private func reload() throws {
         conversations = try store.conversations(); conversationPreviews = try store.conversationPreviews()
         automations = try store.automations()
+    }
+
+    /// Args: id는 요약할 대화다.
+    /// Returns: 없음. 답이 하나 이상 있고 지난 요약 뒤로 메시지가 늘었을 때만 모델로 다시 요약한다.
+    /// Raises: 없음. 실패하면 요약 없이 둔다(사용량 한도 등).
+    func summarize(_ id: String) {
+        guard !summarizing.contains(id), let loaded = try? store.messages(id),
+              loaded.contains(where: { $0.role == "assistant" && $0.status == "complete" }),
+              summaries[id]?.count != loaded.count else { return }
+        summarizing.insert(id)
+        let transcript = loaded.map { ($0.role == "user" ? "질문: " : "답: ") + String($0.text.prefix(800)) }.joined(separator: "\n\n")
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.summarizing.remove(id) }
+            if let text = try? await self.makeClient().conversationSummary(for: transcript) { self.summaries[id] = (loaded.count, text) }
+        }
     }
 
     /// Args: title은 생성된 제목, id는 대상 대화, oldTitle은 덮어써도 되는 자동 제목이다.

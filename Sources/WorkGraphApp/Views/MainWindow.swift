@@ -16,22 +16,96 @@ private struct NavRail: View {
                     Image(systemName: icon(tab)).font(.system(size: 15, weight: on ? .semibold : .regular))
                     .foregroundStyle(on ? Brand.ink : Brand.tabText)
                     .frame(width: 36, height: 36)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(on ? Color.white.opacity(0.9) : .clear))   // 고른 탭은 흰 알약
+                    .background(RoundedRectangle(cornerRadius: 10).fill(on ? Color(hex: 0xF7F5F2) : .clear))   // 고른 탭 알약, 흰색보다 한 단계 어둡게
+                    .hoverHighlight(cornerRadius: 10, active: !on)
                     .overlay(alignment: .topTrailing) {
                         if tab == .settings, state.pendingFileSuggestions > 0 { Circle().fill(Brand.sky).frame(width: 7, height: 7).offset(x: -3, y: 4) }   // 아이콘만이라 숫자 대신 점
                     }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(tab.rawValue)
+                .railLabel(tab.rawValue)
+            }
+            if state.selectedTab == .chat {   // 예약, 스킬, 플러그인은 채팅 탭에서만
+            Rectangle().fill(Brand.hairline).frame(width: 20, height: 1).padding(.vertical, 6)
+            ForEach([("clock", "예약", "schedules"), ("sparkles", "스킬", "skills"), ("powerplug", "플러그인", "plugins")], id: \.2) { icon, name, sheet in
+                Button { state.selectedTab = .chat; state.chatSheet = sheet } label: {
+                    RailGlowIcon(name: icon)                                 // 아이콘 선을 따라 하늘빛이 천천히 흐른다
+                        .frame(width: 36, height: 36)
+                        .hoverHighlight(cornerRadius: 10)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain).railLabel(name).accessibilityLabel(name)
+            }
             }
             Spacer(minLength: 0)
+            AccountDot()
         }
         .padding(.top, 10).padding(.bottom, 12).padding(.horizontal, 6)
         .frame(width: 48)
         .frame(maxHeight: .infinity)
         .background(Color(hex: 0xEFECE9))                    // 창 머리와 같은 톤, 흰색보다 한 단계 낮춤
         .overlay(alignment: .trailing) { Rectangle().fill(Brand.hairline).frame(width: 1) }
+    }
+}
+
+/// 아이콘 줄 맨 아래 계정 동그라미: 로그인한 이메일 앞 두 글자. 누르면 설정
+private struct AccountDot: View {
+    @EnvironmentObject private var state: AppState
+    private var email: String? { if case .loggedIn(let email, _, _) = state.codexStatus { return email }; return nil }
+    var body: some View {
+        let initials = String((email ?? "?").prefix(2)).uppercased()
+        Button { state.settingsSection = .ai; state.selectedTab = .settings } label: {   // 계정 연결은 AI 구역
+            Text(initials).font(Brand.suit(11, .semibold)).foregroundStyle(.white)
+                .frame(width: 30, height: 30).background(Circle().fill(Brand.ink))
+                .frame(width: 36, height: 36).contentShape(Circle())
+        }
+        .buttonStyle(.plain).railLabel(email ?? "계정").accessibilityLabel("계정 \(email ?? "")")
+    }
+}
+
+/// 아이콘 줄 이름표: 커서를 대면 오른쪽에 작은 이름표가 바로 뜬다 (기본 도움말은 늦게 떠서)
+private struct RailLabel: ViewModifier {
+    let text: String
+    @State private var hover = false
+    func body(content: Content) -> some View {
+        content
+            .onHover { hover = $0 }
+            .overlay(alignment: .leading) {
+                if hover {
+                    Text(text).font(Brand.suit(11, .medium)).foregroundStyle(.white).fixedSize()
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Brand.ink.opacity(0.88)))
+                        .offset(x: 44).allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.12), value: hover)
+    }
+}
+private extension View { func railLabel(_ text: String) -> some View { modifier(RailLabel(text: text)) } }
+
+/// 아이콘 선 자체에 옅은 하늘빛이 비스듬히 지나간다 (그래프 AI 검색 밑줄과 같은 색). 바탕 아이콘은 다른 아이콘과 같은 회색
+private struct RailGlowIcon: View {
+    let name: String
+    @State private var phase: CGFloat = -0.65   // 빛 띠 가운데가 늘 아이콘 위를 지나도록
+    @Environment(\.accessibilityReduceMotion) private var reduce
+
+    var body: some View {
+        let glyph = Image(systemName: name).font(.system(size: 15))
+        glyph.foregroundStyle(Color(hex: 0x5E97C8))                             // 늘 하늘빛 (회색 대신)
+            .shadow(color: Color(hex: 0x9CCBF0).opacity(0.9), radius: 3)       // 항상 은은히 번짐
+            .overlay {
+                LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: Color(hex: 0xBFE2FB), location: 0.4),
+                                       .init(color: .white, location: 0.5), .init(color: Color(hex: 0xBFE2FB), location: 0.6),
+                                       .init(color: .clear, location: 1)],
+                               startPoint: UnitPoint(x: phase, y: phase), endPoint: UnitPoint(x: phase + 1, y: phase + 1))
+                    .mask(glyph)                                                 // 그 위로 밝은 띠가 오간다
+            }
+            .onAppear {
+                guard !reduce else { return }
+                withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) { phase = 0.65 }
+            }
     }
 }
 
@@ -64,10 +138,7 @@ private struct TitleRefresh: View {
 struct FileBadge: View {
     let count: Int
     var body: some View {
-        Text("\(count)").font(Brand.jost(10)).foregroundStyle(Brand.tabText)
-            .padding(.horizontal, 5).frame(height: 17)
-            .background(RoundedRectangle(cornerRadius: 4).fill(Brand.sky.opacity(0.12)))
-            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Brand.sky))
+        Text("\(count)").font(Brand.jost(11)).foregroundStyle(Color(hex: 0x5E97C8))   // 상자 없이 하늘색 숫자만
     }
 }
 
@@ -223,7 +294,7 @@ struct MainWindow: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            if showsTabs { NavRail() }
+            if showsTabs { NavRail().zIndex(1) }   // 이름표가 옆 화면 위로 나오게
             Group {
                 if let error = state.startupError {
                     BrandStartupErrorView(message: error)

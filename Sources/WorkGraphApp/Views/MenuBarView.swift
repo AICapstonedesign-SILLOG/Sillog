@@ -224,16 +224,18 @@ private struct MenuBarDashboard: View {
         }
     }
 
-    /// 알림 권한이 꺼져 있으면: 누르면 시스템 설정의 알림
+    /// 알림 권한이 꺼져 있으면: 누르면 설정의 일반(권한 칸)
     private var notificationRow: some View {
-        Button { SuggestionNotifier.openSystemSettings() } label: {
+        Button {
+            state.selectedTab = .settings; state.settingsSection = .record
+            openMain()
+        } label: {
             HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.circle").font(.system(size: 14)).foregroundStyle(Brand.ink)
-                Text("파일 제안 알림 권한이 꺼져 있어요").font(Brand.suit(10)).foregroundStyle(Brand.tabText)
+                Text("알림 꺼짐").font(Brand.suit(10)).foregroundStyle(Brand.tabText)
                 Spacer()
                 Image(systemName: "arrow.up.right").font(.system(size: 10)).foregroundStyle(Brand.tabText)
             }
-            .frame(height: 45)
+            .frame(height: 36)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

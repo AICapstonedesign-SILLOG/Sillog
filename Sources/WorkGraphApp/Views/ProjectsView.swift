@@ -66,8 +66,6 @@ struct ProjectOverview<Composer: View>: View {
                     } label: {
                         Image(systemName: "ellipsis").font(.system(size: 14)).foregroundStyle(Brand.tabText)
                             .frame(width: 30, height: 30)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(.white))
-                            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Brand.line))
                     }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                         .help("프로젝트 메뉴").accessibilityLabel("프로젝트 메뉴")
                 }
@@ -405,6 +403,5 @@ private struct ProjectProposalCard: View {
             }.font(Brand.suit(11, .medium)).padding(.top, 4)
         }.padding(16)
             .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0xF6F5F4)))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Brand.line))
     }
 }

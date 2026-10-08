@@ -73,7 +73,6 @@ struct ChatMessageText: View {
                                 .font(.system(size: 12, design: .monospaced)).foregroundStyle(Brand.tabText)
                         }
                     }.padding(14).background(ChatPalette.soft, in: RoundedRectangle(cornerRadius: 6))
-                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Brand.line))
                 }
             }
         }.textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
@@ -124,8 +123,7 @@ private struct ChatCitationButton: View {
             .font(Brand.suit(9))
             .foregroundStyle(Brand.tabText)
             .padding(.horizontal, 7).frame(height: 26)
-            .background(.white, in: RoundedRectangle(cornerRadius: 4))
-            .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Brand.line))
+            .background(ChatPalette.soft, in: RoundedRectangle(cornerRadius: 4))
         }
         .buttonStyle(.plain)
         .popover(isPresented: $showingSources) {
