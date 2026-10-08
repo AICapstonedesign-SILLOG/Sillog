@@ -224,8 +224,12 @@ public struct DigestInput: Encodable, Sendable {
             }
         }
 
-        input.anchors = Array(Set([taskKey] + input.resources.map(\.key) + input.problems.map(\.key) + input.laterItems.map(\.key)
-                                  + input.files.map(\.key) + input.requests.map(\.key) + input.cards.map(\.key) + weekAnchors)).sorted()
+        // 한 식으로 + 를 이으면 Swift 6.2 에서 타입 계산 시간 초과로 빌드가 멈춘다: 집합에 차례로 더한다 (결과는 같다)
+        var anchors: Set<String> = [taskKey]
+        anchors.formUnion(input.resources.map(\.key)); anchors.formUnion(input.problems.map(\.key)); anchors.formUnion(input.laterItems.map(\.key))
+        anchors.formUnion(input.files.map(\.key)); anchors.formUnion(input.requests.map(\.key)); anchors.formUnion(input.cards.map(\.key))
+        anchors.formUnion(weekAnchors)
+        input.anchors = anchors.sorted()
         input.evidence = Array(Set(input.evidence + weekEvidence).intersection(input.anchors)).sorted()
         return input
     }
