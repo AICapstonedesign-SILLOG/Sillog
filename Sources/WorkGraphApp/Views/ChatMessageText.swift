@@ -41,6 +41,88 @@ struct ChatMessageText: View {
         return (try? AttributedString(markdown: escaped, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(value)
     }
 
+    /// 문단: 수식이 없으면 그대로, 있으면 글줄(글자 + 글줄 수식 이미지)과 블록 수식을 차례로.
+    /// 수식은 마크다운보다 먼저 떼어 낸다 (마크다운이 \[ 의 \ 와 행렬 줄바꿈 \\ 를 지워 LaTeX 가 깨진다)
+    @ViewBuilder private func paragraphView(_ value: String, color: Color = Brand.tabText, lineSpacing: CGFloat = 9) -> some View {
+        let segments = ChatMath.segments(value)
+        if segments == [.text(value)] {
+            bodyText(Text(Self.inlineMarkdown(value)), color: color, lineSpacing: lineSpacing)
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(ChatMath.lines(segments).enumerated()), id: \.offset) { _, line in
+                    switch line {
+                    case .block(let latex): ChatMathBlock(latex: latex)
+                    case .run(let run): bodyText(run.reduce(Text("")) { $0 + Self.piece($1) }, color: color, lineSpacing: lineSpacing)
+                    }
+                }
+            }
+        }
+    }
+
+    private func bodyText(_ text: Text, color: Color = Brand.tabText, lineSpacing: CGFloat = 9) -> some View {
+        text.font(Brand.suit(13)).foregroundStyle(color).lineSpacing(lineSpacing)
+    }
+
+    /// 빈 줄 사이 덩어리 안의 블록을 차례로: 제목은 그 줄만, 목록은 글머리·번호에 매달린 들여쓰기, 인용은 왼쪽 세로줄, 구분선은 가는 가로줄
+    @ViewBuilder private func blocksView(_ value: String) -> some View {
+        let blocks = ChatBlocks.parse(value)
+        if blocks == [.paragraph(value)] {
+            paragraphView(value)
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                    switch block {
+                    case .heading(let level, let text):
+                        Self.inlineText(text).font(Brand.suit(level == 1 ? 18 : level == 2 ? 15 : 13.5, .semibold)).foregroundStyle(Brand.ink)
+                            .padding(.top, 4)
+                    case .paragraph(let text): paragraphView(text)
+                    case .list(let items): listView(items)
+                    case .quote(let text):
+                        HStack(alignment: .top, spacing: 10) {
+                            RoundedRectangle(cornerRadius: 1.5).fill(Brand.line).frame(width: 3)
+                            paragraphView(text, color: Brand.gray)
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
+                    case .divider:
+                        Rectangle().fill(Brand.line).frame(height: 1).padding(.vertical, 4)
+                    }
+                }
+            }
+        }
+    }
+
+    /// 목록: 글머리(단계마다 • ◦ ▪︎)나 번호를 같은 폭에 두고, 내용은 그 오른쪽에 매달려 줄이 넘어가도 들여쓰기가 맞는다
+    private func listView(_ items: [ChatBlocks.Item]) -> some View {
+        let numbered = items.contains { $0.marker != "•" }
+        return VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(item.marker == "•" ? ["•", "◦", "▪︎", "▪︎"][min(item.level, 3)] : item.marker)
+                        .font(Brand.suit(13)).foregroundStyle(Brand.gray).monospacedDigit()
+                        .frame(width: numbered ? 20 : 10, alignment: .trailing)
+                    paragraphView(item.text, lineSpacing: 5)
+                }
+                .padding(.leading, CGFloat(item.level) * 18)
+            }
+        }
+    }
+
+    /// 한 줄 글: 마크다운과 글줄 수식 (제목 줄에 쓴다)
+    static func inlineText(_ value: String) -> Text {
+        ChatMath.segments(value).reduce(Text("")) { $0 + piece($1) }
+    }
+
+    /// 글줄 조각: 글자는 마크다운, 글줄 수식은 기준선에 맞춘 이미지 (그리지 못하면 $원문$)
+    static func piece(_ segment: ChatMath.Segment) -> Text {
+        switch segment {
+        case .text(let text): return Text(inlineMarkdown(text))
+        case .inline(let latex):
+            guard let rendered = ChatMath.render(latex, display: false, fontSize: 14.5) else { return Text(verbatim: "$\(latex)$") }
+            return Text(Image(nsImage: rendered.image)).baselineOffset(-rendered.descent)
+        case .block(let latex): return Text(verbatim: latex)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             ForEach(Array(text.components(separatedBy: "```").enumerated()), id: \.offset) { index, part in
@@ -51,13 +133,8 @@ struct ChatMessageText: View {
                             VStack(alignment: .leading, spacing: 6) {
                                 if let rows = ChatMarkdownTable.rows(in: value) {
                                     ChatMarkdownTableView(rows: rows)
-                                } else if value.hasPrefix("#") {
-                                    Text(value.replacingOccurrences(of: "^#{1,6} +", with: "", options: .regularExpression))
-                                        .font(Brand.suit(value.hasPrefix("# ") ? 18 : 15, .semibold)).foregroundStyle(Brand.ink)
-                                        .padding(.top, 4)
                                 } else if !value.isEmpty {
-                                    Text(Self.inlineMarkdown(value))
-                                        .font(Brand.suit(13)).foregroundStyle(Brand.tabText).lineSpacing(9)
+                                    blocksView(value)
                                 }
                                 if !cited.isEmpty { ChatCitationButton(sources: cited, onSource: onSource) }
                                 if missing { Text("확인되지 않은 근거").font(Brand.suit(10)).foregroundStyle(Brand.gray) }

@@ -270,9 +270,10 @@ While you work, Sillog shows each tool step automatically, and any text you writ
 
 The chat view renders a subset of Markdown:
 - Blocks are separated by blank lines, and each block's source chip appears under it.
-- A heading must be a block by itself, followed by a blank line; otherwise the whole block is shown as a heading.
+- A line starting with "#" is a heading; the lines after it are body text.
 - A table renders when it is a block of its own. Use tables for comparisons and mappings.
-- Bold, italics, inline code, and links render inside text. Lines starting with "- " or "1. " are shown as typed, so keep lists to one level.
+- Bold, italics, inline code, and links render inside text. "- " bullet and "1. " numbered lists render with a hanging indent; indent a sub-item by two spaces, and keep lists to two levels.
+- Lines starting with "> " render as a quote, and a line of "---" renders as a divider.
 - Put code in fenced code blocks with a language label.
 - Mermaid, images, and HTML don't render in chat. For a chart or diagram, make an HTML artifact; for a single fact or a simple step, skip visuals.
 

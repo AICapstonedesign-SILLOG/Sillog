@@ -31,6 +31,8 @@ cp -R "$ROOT/Sources/WorkGraphApp/Resources/graph" "$APP/Contents/Resources/grap
 cp -R "$ROOT/Sources/WorkGraphApp/Resources/PluginIcons" "$APP/Contents/Resources/PluginIcons"
 cp -R "$ROOT/Sources/WorkGraphApp/Resources/Brand" "$APP/Contents/Resources/Brand"
 cp -R "$BIN_DIR/WorkGraph_WorkGraphCore.bundle" "$APP/Contents/Resources/"
+cp -R "$BIN_DIR/SwiftMath_SwiftMath.bundle" "$APP/Contents/Resources/"    # 채팅 수식 글꼴 (없으면 수식을 그릴 때 앱이 멈춘다)
+chmod -R u+w "$APP/Contents/Resources/SwiftMath_SwiftMath.bundle"                    # 패키지 체크아웃에서 읽기 전용으로 오므로 서명 전 xattr 정리가 되게
 [ -f "$ROOT/Sources/WorkGraphApp/Resources/AppIcon.icns" ] || swift "$ROOT/scripts/make-icon.swift" "$ROOT/Sources/WorkGraphApp/Resources/AppIcon.icns"
 cp "$ROOT/Sources/WorkGraphApp/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 

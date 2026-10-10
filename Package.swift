@@ -13,6 +13,8 @@ let package = Package(
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
         // LangGraph for Swift: 문서 플러그인을 브랜치로 물고 있어 버전이 아니라 커밋으로 고정 (마지막 커밋 2025-08-01)
         .package(url: "https://github.com/bsorrentino/LangGraph-Swift.git", revision: "d91c62aaa25e818f2667482c6edbe635a375ec45"),
+        // 채팅 답의 LaTeX 수식을 앱 안에서 그린다 (네이티브, MIT). 수식 글꼴에 없는 글자(한글·①)용 대체 글꼴이 1.7.3 뒤에 들어와 커밋으로 고정 (2026-06-29)
+        .package(url: "https://github.com/mgriebling/SwiftMath.git", revision: "1d2c90827e9c3908269d810d055fb03b7da5fd53"),
     ],
     targets: [
         .target(
@@ -26,7 +28,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "WorkGraphApp",
-            dependencies: ["WorkGraphCore", "WorkGraphCollectors"],
+            dependencies: ["WorkGraphCore", "WorkGraphCollectors", .product(name: "SwiftMath", package: "SwiftMath")],
             exclude: ["Resources/AppIcon.icns"],            // .app 번들에는 scripts/make-app.sh 가 직접 넣는다
             resources: [.copy("Resources/graph"), .copy("Resources/PluginIcons"), .copy("Resources/Brand")]
         ),

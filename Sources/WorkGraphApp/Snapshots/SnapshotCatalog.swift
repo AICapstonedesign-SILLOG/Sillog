@@ -5,7 +5,7 @@ import WorkGraphCore
 /// 스냅샷으로 그릴 화면 목록. 이름은 Figma 화면 번호를 따른다 (Figma 에서 내보낸 같은 이름의 PNG 와 나란히 본다)
 @MainActor
 enum SnapshotCatalog {
-    static var all: [Snapshot] { menus + windows + activity + chat + storage }
+    static var all: [Snapshot] { menus + windows + activity + chat + storage + [mathAnswer] }
 
     /// Figma 창(760) 에서 제목 줄(44)을 뺀 내용 영역
     static let window = CGSize(width: 1180, height: 716)
@@ -70,6 +70,23 @@ enum SnapshotCatalog {
             batchShot("LG-W4", ActivityLogView(section: .batches, showReceived: true)),
             batchShot("LG-W7", ActivityLogView(section: .batches), failedFirst: true),
         ]
+    }
+
+    /// 채팅 답의 수식: 블록 행렬(\text{①}, \qquad), 글줄 수식, \text 안 한글, 분수
+    static var mathAnswer: Snapshot {
+        let answer = #"""
+        두 행렬을 비교하면 이렇습니다.
+
+        \[
+        \text{① }\begin{pmatrix}1&0\\0&1\end{pmatrix}\qquad\text{② }\begin{pmatrix}1&1\\1&1\end{pmatrix}
+        \]
+
+        ①은 항등행렬이라 $\det = 1$ 이고, ②는 $\det = 1\cdot1 - 1\cdot1 = 0$ 이라 역행렬이 없어요. 넓이는 \(\text{넓이} = \frac{1}{2}ab\) 로 구해요.
+
+        $$\sum_{k=1}^{n} k = \frac{n(n+1)}{2}$$
+        """#
+        let view = ChatMessageText(text: answer, sources: [], onSource: { _ in }).frame(width: 640).padding(24).background(Color.white)
+        return Snapshot(name: "CH-math", size: CGSize(width: 688, height: 420), view: AnyView(view.environmentObject(AppState(preview: { _ in }))))
     }
 
     /// 채팅: 머리의 모델 칩 (누르면 그 자리에서 채팅 모델을 고른다)
