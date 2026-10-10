@@ -1,5 +1,5 @@
 {
-  "originHash" : "d74a1d1d3c9e3ce4d0279ffbe0f0f83a895bad78cb3251ab212d020e4e82a58a",
+  "originHash" : "a53a4d2d3b5e678e7f66d3726e65655cc239529a5c6322c6e115b917db0d6000",
   "pins" : [
     {
       "identity" : "grdb.swift",
@@ -16,6 +16,14 @@
       "location" : "https://github.com/bsorrentino/LangGraph-Swift.git",
       "state" : {
         "revision" : "d91c62aaa25e818f2667482c6edbe635a375ec45"
+      }
+    },
+    {
+      "identity" : "swiftmath",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mgriebling/SwiftMath.git",
+      "state" : {
+        "revision" : "1d2c90827e9c3908269d810d055fb03b7da5fd53"
       }
     }
   ],
